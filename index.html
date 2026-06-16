@@ -193,7 +193,29 @@ function saveCompare() {
 function loadCompare() {
   try {
     const raw = localStorage.getItem(COMPARE_KEY);
-    return raw ? JSON.parse(raw) : {};
+    if (!raw) return {};
+    const data = JSON.parse(raw);
+    // Check if migration needed: if compareRaw has old-format keys, shift compare too
+    const rawRaw = localStorage.getItem(COMPARE_RAW_KEY) || '{}';
+    const rawData = JSON.parse(rawRaw);
+    const hasOldFormat = Object.keys(rawData).some(k => /^\d{4}-\d$/.test(k));
+    if (!hasOldFormat) return data;
+    // Shift all compare date keys by +1 month
+    const migrated = {};
+    for (const [key, val] of Object.entries(data)) {
+      const m = key.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+      if (m) {
+        const newMonth = parseInt(m[2]) + 1;
+        if (newMonth <= 12) {
+          const newKey = `${m[1]}-${String(newMonth).padStart(2,'0')}-${m[3]}`;
+          migrated[newKey] = val;
+        }
+      } else {
+        migrated[key] = val;
+      }
+    }
+    localStorage.setItem(COMPARE_KEY, JSON.stringify(migrated));
+    return migrated;
   } catch(e) { return {}; }
 }
 
@@ -206,7 +228,26 @@ function saveCompareRaw() {
 function loadCompareRaw() {
   try {
     const raw = localStorage.getItem(COMPARE_RAW_KEY);
-    return raw ? JSON.parse(raw) : {};
+    if (!raw) return {};
+    const data = JSON.parse(raw);
+    // Migrate old format keys "YYYY-M" (0-based, no padding) to "YYYY-MM" (1-based, padded)
+    const migrated = {};
+    let needsMigration = false;
+    for (const [key, val] of Object.entries(data)) {
+      const m = key.match(/^(\d{4})-(\d{1,2})$/);
+      if (m && m[2].length === 1) {
+        // Old format: "2026-5" → new: "2026-06"
+        const newKey = `${m[1]}-${String(parseInt(m[2])+1).padStart(2,'0')}`;
+        migrated[newKey] = val;
+        needsMigration = true;
+      } else {
+        migrated[key] = val;
+      }
+    }
+    if (needsMigration) {
+      localStorage.setItem(COMPARE_RAW_KEY, JSON.stringify(migrated));
+    }
+    return migrated;
   } catch(e) { return {}; }
 }
 
@@ -435,7 +476,7 @@ function renderCompare() {
     let m = today.getMonth() - i;
     let y = today.getFullYear();
     while (m < 0) { m += 12; y--; }
-    months.push({ y, m, label: `${MONTHS[m]} ${y}`, value: `${y}-${m}` });
+    months.push({ y, m, label: `${MONTHS[m]} ${y}`, value: `${y}-${String(m+1).padStart(2,'0')}` });
   }
   if (!compareSel) compareSel = months[0].value;
 
@@ -443,8 +484,8 @@ function renderCompare() {
     `<option value="${x.value}" ${x.value === compareSel ? 'selected' : ''}>${x.label}</option>`
   ).join('');
 
-  const [cmpY, cmpM] = compareSel.split('-').map(Number);
-  const cmpPrefix = `${cmpY}-${String(cmpM+1).padStart(2,'0')}`;
+  const [cmpY, cmpM] = compareSel.split('-').map(Number); // cmpM is 1-based
+  const cmpPrefix = compareSel; // already 'YYYY-MM'
 
   const diffCount = Object.entries(compare).filter(([d,s]) => {
     if (!d.startsWith(cmpPrefix)) return false;
@@ -520,7 +561,7 @@ function renderCompareTable(y, m) {
   const days = daysInMonth(y, m-1);
   let rows = '';
   let diffCount = 0;
-  for (let d = 1; d <= days; d++) {
+  for (let d = days; d >= 1; d--) {
     const key = `${prefix}-${String(d).padStart(2,'0')}`;
     const our  = records[key];
     const prof = compare[key];
@@ -571,14 +612,14 @@ function confirmAction(message, onConfirm) {
 
 function clearCompareMonth() {
   if (!compareSel) return;
-  const [y, m] = compareSel.split('-').map(Number);
+  const [y, m] = compareSel.split('-').map(Number); // m is 1-based
   const monthName = MONTHS[m] + ' ' + y;
   confirmAction(`Usunąć dane weryfikacyjne dla <strong>${monthName}</strong>?`, () => {
-    const prefix = `${y}-${String(m+1).padStart(2,'0')}`;
+    const prefix = `${y}-${String(m).padStart(2,'0')}`;
     for (const k of Object.keys(compare)) {
       if (k.startsWith(prefix)) delete compare[k];
     }
-    delete compareRaw[`${y}-${m+1}`];
+    delete compareRaw[`${y}-${m}`];
     saveCompare();
     saveCompareRaw();
     render();
@@ -630,8 +671,8 @@ function formatAsRanges(days) {
 
 function openImport() {
   if (!compareSel) return;
-  const [y, m] = compareSel.split('-').map(Number);
-  const existing = compareRaw[`${y}-${m+1}`] || '';
+  const [y, m] = compareSel.split('-').map(Number); // m is 1-based
+  const existing = compareRaw[`${y}-${m}`] || '';
   const overlay = document.createElement('div');
   overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.35);z-index:999;display:flex;align-items:center;justify-content:center';
   overlay.innerHTML = `
@@ -649,7 +690,7 @@ function openImport() {
       <div id="importPreview" style="font-size:12px;color:var(--muted);margin-top:6px;min-height:18px"></div>
       <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:12px">
         <button class="btn" onclick="this.closest('div[style*=fixed]').remove()">Anuluj</button>
-        <button class="btn" onclick="applyImport(${y},${m+1},this)" style="background:#4f7ef8;color:#fff;border-color:#4f7ef8">Porównaj</button>
+        <button class="btn" onclick="applyImport(${y},${m},this)" style="background:#4f7ef8;color:#fff;border-color:#4f7ef8">Porównaj</button>
       </div>
     </div>`;
   document.body.appendChild(overlay);

@@ -93,11 +93,13 @@ def scrape_year(page, year: int) -> dict:
         return { headers, rows };
     }""")
 
+    # headers[0] = "" (kolumna rowHeader w thead), headers[1]="1"...headers[31]="31"
+    # komórki w tbody nie mają th wliczonego — indeks komórki = indeks nagłówka - 1
     day_map = {}
     for i, h in enumerate(table_data["headers"]):
         h = str(h).strip()
         if re.fullmatch(r"\d{1,2}", h) and 1 <= int(h) <= 31:
-            day_map[i] = int(h)
+            day_map[i - 1] = int(h)
 
     results = {}
     for row in table_data["rows"]:

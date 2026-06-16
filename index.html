@@ -510,49 +510,93 @@ function renderChart() {
 }
 
 // ── IMPORT / COMPARE ──────────────────────────────────────────────────────────
+function parseRanges(raw) {
+  // Parsuje zakresy i pojedyncze dni: "4-8, 12-19, 22-28" lub "4,5,6" lub mieszane
+  const occupied = new Set();
+  const tokens = raw.split(/[\s,;]+/).filter(Boolean);
+  for (const token of tokens) {
+    const range = token.match(/^(\d{1,2})-(\d{1,2})$/);
+    if (range) {
+      const from = parseInt(range[1]), to = parseInt(range[2]);
+      for (let d = Math.min(from,to); d <= Math.max(from,to); d++) occupied.add(d);
+    } else {
+      const n = parseInt(token);
+      if (!isNaN(n) && n >= 1 && n <= 31) occupied.add(n);
+    }
+  }
+  return occupied;
+}
+
+function formatAsRanges(days) {
+  // Zamienia zbiór dni na czytelne zakresy: [4,5,6,7,8] → "4-8"
+  if (!days.length) return "";
+  const sorted = [...days].sort((a,b) => a-b);
+  const ranges = [];
+  let start = sorted[0], end = sorted[0];
+  for (let i = 1; i < sorted.length; i++) {
+    if (sorted[i] === end + 1) { end = sorted[i]; }
+    else {
+      ranges.push(start === end ? `${start}` : `${start}-${end}`);
+      start = end = sorted[i];
+    }
+  }
+  ranges.push(start === end ? `${start}` : `${start}-${end}`);
+  return ranges.join(", ");
+}
+
 function openImport() {
   const sel = document.getElementById("cmpMonth");
   const [y, m] = sel.value.split("-").map(Number);
-  const days = daysInMonth(y, m);
-  const existing = Object.entries(compare)
+
+  const existingDays = Object.entries(compare)
     .filter(([d]) => d.startsWith(`${y}-${String(m+1).padStart(2,"0")}`))
     .filter(([,s]) => s === "occupied")
     .map(([d]) => parseInt(d.slice(-2)))
-    .sort((a,b) => a-b).join(", ");
+    .sort((a,b) => a-b);
+  const existing = formatAsRanges(existingDays);
 
   const overlay = document.createElement("div");
   overlay.style.cssText = "position:fixed;inset:0;background:rgba(0,0,0,.35);z-index:999;display:flex;align-items:center;justify-content:center";
   overlay.innerHTML = `
-    <div style="background:var(--surface);border-radius:12px;padding:1.5rem;width:420px;max-width:95vw;box-shadow:0 8px 30px rgba(0,0,0,.15)">
+    <div style="background:var(--surface);border-radius:12px;padding:1.5rem;width:440px;max-width:95vw;box-shadow:0 8px 30px rgba(0,0,0,.15)">
       <h3 style="font-size:16px;font-weight:600;margin-bottom:8px">Wprowadź dane z Profitroom</h3>
-      <p style="font-size:13px;color:var(--muted);margin-bottom:12px;line-height:1.6">
-        Miesiąc: <strong>${MONTHS[m]} ${y}</strong><br>
-        Otwórz <a href="https://5806.center-inner.profitroom.com/avail-review/pl/room/474980/474980/9bd957797b4da9c0d9a417d4da8813cdcbb1ef9f" target="_blank" style="color:#4f7ef8">kalendarz Profitroom ↗</a>
-        i wpisz numery <strong>zajętych</strong> dni (np. <code>1, 5, 6, 7, 12</code>).
+      <p style="font-size:13px;color:var(--muted);margin-bottom:4px;line-height:1.6">
+        Miesiąc: <strong>${MONTHS[m]} ${y}</strong> ·
+        <a href="https://5806.center-inner.profitroom.com/avail-review/pl/room/474980/474980/9bd957797b4da9c0d9a417d4da8813cdcbb1ef9f" target="_blank" style="color:#4f7ef8">otwórz Profitroom ↗</a>
       </p>
-      <textarea id="importInput" placeholder="Numery zajętych dni, np: 3, 4, 5, 10, 11, 12"
-        style="width:100%;min-height:70px;padding:8px;border:1px solid var(--border);border-radius:7px;font-size:13px;font-family:inherit;resize:vertical;background:var(--surface);color:var(--text)">${existing}</textarea>
+      <p style="font-size:12px;color:var(--hint);margin-bottom:10px">
+        Wpisz zakresy lub pojedyncze dni zajęte, np. <code>4-8, 12-19, 22-28</code>
+      </p>
+      <textarea id="importInput" placeholder="np. 4-8, 12-19, 22-28"
+        style="width:100%;min-height:60px;padding:8px;border:1px solid var(--border);border-radius:7px;font-size:14px;font-family:inherit;resize:vertical;background:var(--surface);color:var(--text)">${existing}</textarea>
+      <div id="importPreview" style="font-size:12px;color:var(--muted);margin-top:6px;min-height:18px"></div>
       <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:12px">
         <button class="btn" onclick="this.closest('div[style*=fixed]').remove()">Anuluj</button>
         <button class="btn" onclick="applyImport(${y},${m},this)" style="background:#4f7ef8;color:#fff;border-color:#4f7ef8">Porównaj</button>
       </div>
     </div>`;
   document.body.appendChild(overlay);
+
+  // Live preview
+  const ta = overlay.querySelector('#importInput');
+  const preview = overlay.querySelector('#importPreview');
+  function updatePreview() {
+    const days = parseRanges(ta.value);
+    preview.textContent = days.size ? `${days.size} zajętych dni: ${formatAsRanges([...days].sort((a,b)=>a-b))}` : "";
+  }
+  ta.addEventListener('input', updatePreview);
+  updatePreview();
 }
 
 function applyImport(y, m, btn) {
   const raw = document.getElementById("importInput").value;
-  const profitOccupied = new Set(
-    raw.split(/[\s,;]+/).map(n => parseInt(n)).filter(n => !isNaN(n) && n >= 1 && n <= 31)
-  );
+  const profitOccupied = parseRanges(raw);
   const prefix = `${y}-${String(m+1).padStart(2,"0")}`;
   const days = daysInMonth(y, m);
 
-  // Clear old compare for this month
   for (const k of Object.keys(compare)) {
     if (k.startsWith(prefix)) delete compare[k];
   }
-
   for (let d = 1; d <= days; d++) {
     const key = `${prefix}-${String(d).padStart(2,"0")}`;
     compare[key] = profitOccupied.has(d) ? "occupied" : "free";
@@ -561,7 +605,6 @@ function applyImport(y, m, btn) {
   btn.closest("div[style*='fixed']").remove();
   render();
 }
-
 function clearCompare() {
   compare = {};
   render();

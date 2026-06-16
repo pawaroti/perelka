@@ -76,6 +76,10 @@
   .cal-day.empty { background: var(--bg); }
   .cal-day.occupied { background: var(--occ-bg); color: var(--occ-text); font-weight: 500; }
   .cal-day.free     { background: var(--free-bg); color: var(--free-text); font-weight: 500; }
+  /* checkout: lewa połowa zajęta (czerwona), prawa wolna (biała) */
+  .cal-day.checkout { background: linear-gradient(to right, var(--occ-bg) 50%, var(--surface) 50%); color: var(--occ-text); font-weight: 500; }
+  /* checkin: lewa połowa wolna (biała), prawa zajęta (czerwona) */
+  .cal-day.checkin  { background: linear-gradient(to right, var(--surface) 50%, var(--occ-bg) 50%); color: var(--occ-text); font-weight: 500; }
   .cal-day.today    { outline: 2px solid #4f7ef8; outline-offset: -2px; font-weight: 700; }
   .cal-day.future   { color: var(--hint); }
   .cal-day.no-data  { color: var(--hint); background: var(--bg); }
@@ -106,6 +110,8 @@
            border-radius: 99px; font-size: 12px; font-weight: 500; }
   .badge.occ  { background: var(--occ-bg);  color: var(--occ-text); }
   .badge.free { background: var(--free-bg); color: var(--free-text); }
+  .badge.checkout { background: var(--occ-bg); color: var(--occ-text); }
+  .badge.checkin  { background: var(--occ-bg); color: var(--occ-text); }
   .badge.diff { background: var(--diff-bg); color: var(--diff-text); }
   .badge.none { background: var(--bg); color: var(--hint); border: 1px solid var(--border); }
 
@@ -206,7 +212,7 @@ function daysInMonth(y, m) { return new Date(y, m+1, 0).getDate(); }
 
 function monthStats(y, m) {
   const prefix = `${y}-${String(m+1).padStart(2,"0")}`;
-  let occ = 0, free = 0, unknown = 0;
+  let occ = 0, free = 0, checkout = 0, checkin = 0, unknown = 0;
   const total = daysInMonth(y, m);
   const today = todayISO();
   for (let d = 1; d <= total; d++) {
@@ -214,13 +220,15 @@ function monthStats(y, m) {
     if (new Date(key) > new Date(today)) continue;
     if      (records[key] === "occupied") occ++;
     else if (records[key] === "free")     free++;
+    else if (records[key] === "checkout")  checkout++;
+    else if (records[key] === "checkin")   checkin++;
     else                                  unknown++;
   }
-  return { occ, free, unknown };
+  return { occ, free, checkout, checkin, unknown };
 }
 
 function globalStats() {
-  let occ = 0, free = 0, unknown = 0;
+  let occ = 0, free = 0, checkout = 0, checkin = 0, unknown = 0;
   const today = todayISO();
   const allKeys = Object.keys(records);
   const first = allKeys.sort()[0];
@@ -231,10 +239,12 @@ function globalStats() {
     const key = cur.toISOString().slice(0,10);
     if      (records[key] === "occupied") occ++;
     else if (records[key] === "free")     free++;
+    else if (records[key] === "checkout")  checkout++;
+    else if (records[key] === "checkin")   checkin++;
     else                                  unknown++;
     cur.setDate(cur.getDate() + 1);
   }
-  return { occ, free, unknown };
+  return { occ, free, checkout, checkin, unknown };
 }
 
 // ── RENDER ────────────────────────────────────────────────────────────────────
@@ -255,13 +265,15 @@ function renderStats() {
   const s = globalStats();
   const todayStatus = records[todayISO()];
   const todayBadge = todayStatus
-    ? `<span class="badge ${todayStatus==="occupied"?"occ":"free"}">${todayStatus==="occupied"?"🔴 Zajęty":"🟢 Wolny"}</span>`
+    ? `<span class="badge ${todayStatus==="occupied"?"occ":todayStatus==="checkout"?"checkout":todayStatus==="checkin"?"checkin":"free"}">${todayStatus==="occupied"?"🔴 Zajęty":todayStatus==="checkout"?"🔴 Checkout (od 16:00)":todayStatus==="checkin"?"🔴 Checkin (do 16:00 wolny)":"🟢 Wolny"}</span>`
     : `<span class="badge none">—</span>`;
   return `
     <div class="stats">
       <div class="stat"><div class="stat-label">Dziś</div><div style="margin-top:4px">${todayBadge}</div></div>
       <div class="stat"><div class="stat-label">Dni zajętych (łącznie)</div><div class="stat-value occ">${s.occ}</div></div>
       <div class="stat"><div class="stat-label">Dni wolnych (łącznie)</div><div class="stat-value free">${s.free}</div></div>
+      <div class="stat"><div class="stat-label">Checkout (od 16:00)</div><div class="stat-value" style="color:var(--occ-dot)">${s.checkout}</div></div>
+      <div class="stat"><div class="stat-label">Checkin (od 16:00)</div><div class="stat-value" style="color:var(--occ-dot)">${s.checkin}</div></div>
       <div class="stat"><div class="stat-label">Dni bez danych</div><div class="stat-value" style="color:var(--hint)">${s.unknown}</div></div>
     </div>`;
 }
@@ -298,8 +310,10 @@ function renderCalendar() {
     let cls = "cal-day";
     if      (isDiff)           cls += " diff";
     else if (isFuture)         cls += " future";
-    else if (!status)          cls += " no-data";
+    else if (!status)             cls += " no-data";
     else if (status==="occupied") cls += " occupied";
+    else if (status==="checkout") cls += " checkout";
+    else if (status==="checkin")  cls += " checkin";
     else                          cls += " free";
     if (isToday) cls += " today";
 
@@ -318,6 +332,8 @@ function renderCalendar() {
       <div class="cal-legend">
         <div class="leg-item"><div class="leg-dot occ"></div> Zajęty</div>
         <div class="leg-item"><div class="leg-dot free"></div> Wolny</div>
+        <div class="leg-item"><div style="width:10px;height:10px;border-radius:3px;background:linear-gradient(to right,white 50%,var(--occ-bg) 50%);border:1px solid var(--occ-dot)"></div> Checkin (rano wolny)</div>
+        <div class="leg-item"><div style="width:10px;height:10px;border-radius:3px;background:linear-gradient(to right,var(--occ-bg) 50%,white 50%);border:1px solid var(--occ-dot)"></div> Checkout (od 16:00 wolny)</div>
         <div class="leg-item"><div class="leg-dot none"></div> Brak danych</div>
         ${Object.keys(compare).length ? `<div class="leg-item"><div class="leg-dot diff"></div> Różnica vs Profitroom</div>` : ""}
       </div>
@@ -336,6 +352,10 @@ function renderTable() {
     const isDiff = s && c && s !== c;
     const badge = s === "occupied"
       ? `<span class="badge occ">🔴 Zajęty</span>`
+      : s === "checkin"
+      ? `<span class="badge checkin">🔴 Checkin</span>`
+      : s === "checkout"
+      ? `<span class="badge checkout">🔴 Checkout</span>`
       : `<span class="badge free">🟢 Wolny</span>`;
     const cBadge = c
       ? (c==="occupied" ? `<span class="badge occ">🔴 Zajęty</span>` : `<span class="badge free">🟢 Wolny</span>`)

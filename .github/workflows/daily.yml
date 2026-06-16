@@ -49,11 +49,14 @@ jobs:
             echo "⚠️ **Nieznany — sprawdź logi i data/last_page.html**" >> $GITHUB_STEP_SUMMARY
           fi
 
-      - name: Artefakt debug HTML
+      - name: Artefakt debug
         if: always()
         uses: actions/upload-artifact@v4.6.2
         with:
-          name: last-page-${{ github.run_id }}
-          path: data/last_page.html
+          name: debug-${{ github.run_id }}
+          path: |
+            data/last_page.html
+            data/debug_classes.txt
+            data/debug_calendar.html
+            data/run_log.txt
           retention-days: 7
- 

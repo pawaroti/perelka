@@ -8,3 +8,74 @@
 [2026-06-16 16:12:08] Pobrano 0 dat łącznie
 [2026-06-16 16:12:08] OSTRZEŻENIE: Brak danych z kalendarza — sprawdź artefakt debug w Actions
 [2026-06-16 16:12:08] === Koniec (brak danych) ===
+[2026-06-16 16:19:31] === Start: 2026-06-16 ===
+[2026-06-16 16:19:33] Ładowanie: https://5806.center-inner.profitroom.com/avail-review/pl/room/474980/474980/9bd957797b4da9c0d9a417d4da8813cdcbb1ef9f
+[2026-06-16 16:19:35] Znaleziono table.htCore
+[2026-06-16 16:19:37] HTML zapisany (64167 znaków)
+[2026-06-16 16:19:37] Handsontable dump zapisany (41416 znaków), source: DOM
+[2026-06-16 16:19:37] Podgląd: {
+  "source": "DOM",
+  "headers": [
+    "",
+    "1",
+    "2",
+    "3",
+    "4",
+    "5",
+    "6",
+    "7",
+    "8",
+    "9",
+    "10",
+    "11",
+    "12",
+    "13",
+    "14",
+    "15",
+    "16",
+    "17",
+    "18",
+    "19",
+    "20",
+    "21",
+    "22",
+    "23",
+    "24",
+    "25",
+    "26",
+    "27",
+    "28",
+    "29",
+    "30",
+    "31"
+  ],
+  "rows": [
+    {
+      "rowHeader": "STY",
+      "cells": [
+        {
+          "text": "",
+          "cls": "past y_active active ",
+          "title": ""
+        },
+        {
+          "text": "",
+          "cls": "past y_active active ",
+          "title": ""
+        },
+        {
+          "text": "",
+          "cls": "past y_active active ",
+          "title": ""
+        },
+        {
+          "text": "",
+          "cls": "past y_active activ
+[2026-06-16 16:19:37] DOM: 32 nagłówków, 12 wierszy
+[2026-06-16 16:19:37] Nagłówki (pierwsze 20): ['', '1', '2', '3', '4', '5', '6', '7', '8', '9', '10', '11', '12', '13', '14', '15', '16', '17', '18', '19']
+[2026-06-16 16:19:37] Pierwszy wiersz: rowHeader=STY, pierwsza komórka: {'text': '', 'cls': 'past y_active active ', 'title': ''}
+[2026-06-16 16:19:37] Brak dat w title — próbuję rekonstrukcji z nagłówków kolumn
+[2026-06-16 16:19:37] Znaleziono 31 kolumn dni
+[2026-06-16 16:19:37] Pobrano 29 dat łącznie
+[2026-06-16 16:19:37] Status dziś (2026-06-16): unknown
+[2026-06-16 16:19:37] === Koniec ===

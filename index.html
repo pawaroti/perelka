@@ -470,6 +470,7 @@ function updateCompareStorageInfo() {
 }
 
 function renderCompare() {
+  try {
   const months = [];
   const today = new Date();
   for (let i = 0; i < 18; i++) {
@@ -528,6 +529,9 @@ function renderCompare() {
     </div>
     ${nightsSummary}
     ${table}`;
+  } catch(e) {
+    return `<div style="color:red;padding:1rem;font-size:13px;font-family:monospace">Błąd: ${e.message}</div>`;
+  }
 }
 
 function renderCompareNightsSummary(y, m) {
@@ -613,7 +617,7 @@ function confirmAction(message, onConfirm) {
 function clearCompareMonth() {
   if (!compareSel) return;
   const [y, m] = compareSel.split('-').map(Number); // m is 1-based
-  const monthName = MONTHS[m] + ' ' + y;
+  const monthName = MONTHS[m-1] + ' ' + y;
   confirmAction(`Usunąć dane weryfikacyjne dla <strong>${monthName}</strong>?`, () => {
     const prefix = `${y}-${String(m).padStart(2,'0')}`;
     for (const k of Object.keys(compare)) {

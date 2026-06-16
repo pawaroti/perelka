@@ -747,6 +747,70 @@ function applyImport(y, m, btn) {
 }
 
 // ── NAV ───────────────────────────────────────────────────────────────────────
+function renderChart() {
+  const today = new Date();
+  const year = viewYear;
+  const MONTH_SHORT = ["Sty","Lut","Mar","Kwi","Maj","Cze","Lip","Sie","Wrz","Paź","Lis","Gru"];
+
+  let totNights = 0, totFree = 0;
+  let rows = "";
+
+  for (let m = 0; m < 12; m++) {
+    const prefix = `${year}-${String(m+1).padStart(2,"0")}`;
+    const total  = daysInMonth(year, m);
+    let occ = 0, ci = 0, co = 0, free = 0;
+    for (let d = 1; d <= total; d++) {
+      const key = `${prefix}-${String(d).padStart(2,"0")}`;
+      const s   = records[key];
+      if      (s === "occupied") occ++;
+      else if (s === "checkin")  ci++;
+      else if (s === "checkout") co++;
+      else if (s === "free")     free++;
+    }
+    const nights = occ + ci;   // checkout nie liczy się jako noc
+    const occTotal = occ + ci + co;
+    totNights += nights;
+    totFree   += free;
+
+    const pctOcc  = Math.round(occTotal / total * 100);
+    const pctFree = Math.round(free     / total * 100);
+
+    rows += `
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:7px">
+        <div style="width:36px;font-size:12px;color:var(--muted);text-align:right;flex-shrink:0">${MONTH_SHORT[m]}</div>
+        <div style="flex:1;height:20px;background:var(--bg);border-radius:4px;overflow:hidden;position:relative">
+          <div style="position:absolute;left:0;top:0;height:100%;width:${pctOcc}%;background:var(--occ-dot);opacity:.75"></div>
+          <div style="position:absolute;left:${pctOcc}%;top:0;height:100%;width:${pctFree}%;background:var(--free-dot);opacity:.75"></div>
+        </div>
+        <div style="width:90px;font-size:12px;color:var(--muted);flex-shrink:0">
+          ${nights > 0 ? `<span style="color:var(--occ-dot)">🌙${nights}</span>` : ""}
+          ${free  > 0 ? `<span style="color:var(--free-dot);margin-left:4px">🟢${free}</span>` : ""}
+        </div>
+      </div>`;
+  }
+
+  const pctTotal = (totNights + totFree) > 0 ? Math.round(totNights / (totNights + totFree) * 100) : 0;
+
+  return `
+    <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--border-radius-lg);padding:1.25rem;box-shadow:var(--shadow)">
+      <div style="display:flex;align-items:baseline;justify-content:space-between;margin-bottom:1rem;flex-wrap:wrap;gap:8px">
+        <div style="font-size:14px;font-weight:500">Zajętość ${year}</div>
+        <div style="font-size:12px;color:var(--muted)">
+          🌙 ${totNights} nocy &nbsp;·&nbsp; 🟢 ${totFree} wolnych &nbsp;·&nbsp; ${pctTotal}% obłożenie
+        </div>
+        <div style="display:flex;gap:6px">
+          <button class="btn" style="font-size:12px;padding:4px 10px" onclick="viewYear--;render()">‹ ${year-1}</button>
+          <button class="btn" style="font-size:12px;padding:4px 10px" onclick="viewYear++;render()">${year+1} ›</button>
+        </div>
+      </div>
+      ${rows}
+      <div style="font-size:11px;color:var(--hint);margin-top:10px">
+        Czerwony = zajęte dni · Zielony = wolne dni (skala 100% = max dni w miesiącu)
+      </div>
+    </div>`;
+}
+
+
 function switchTab(t) { activeTab = t; render(); }
 function changeMonth(delta) {
   viewMonth += delta;

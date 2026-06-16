@@ -197,13 +197,27 @@ function loadCompare() {
   } catch(e) { return {}; }
 }
 
+const COMPARE_RAW_KEY = 'apt_compare_raw_v1';
+
+function saveCompareRaw() {
+  try { localStorage.setItem(COMPARE_RAW_KEY, JSON.stringify(compareRaw)); } catch(e) {}
+}
+
+function loadCompareRaw() {
+  try {
+    const raw = localStorage.getItem(COMPARE_RAW_KEY);
+    return raw ? JSON.parse(raw) : {};
+  } catch(e) { return {}; }
+}
+
 // ── STATE ─────────────────────────────────────────────────────────────────────
 const MONTHS = ["Styczeń","Luty","Marzec","Kwiecień","Maj","Czerwiec",
                 "Lipiec","Sierpień","Wrzesień","Październik","Listopad","Grudzień"];
 const DAYS   = ["Pn","Wt","Śr","Cz","Pt","Sb","Nd"];
 
 let records  = {};   // { "2025-06-15": "occupied"|"free" }
-let compare  = loadCompare();   // { "2025-06-15": "occupied"|"free" }  (profitroom snapshot for comparison)
+let compare    = loadCompare();   // { "2025-06-15": "occupied"|"free" }
+let compareRaw = loadCompareRaw(); // { "2026-6": "4-8, 12-19" }  — oryginalny tekst
 let viewYear, viewMonth, activeTab = "calendar";
 
 // ── DATA ──────────────────────────────────────────────────────────────────────
@@ -631,12 +645,7 @@ function openImport() {
   const sel = document.getElementById("cmpMonth");
   const [y, m] = sel.value.split("-").map(Number);
 
-  const existingDays = Object.entries(compare)
-    .filter(([d]) => d.startsWith(`${y}-${String(m+1).padStart(2,"0")}`))
-    .filter(([,s]) => s === "occupied")
-    .map(([d]) => parseInt(d.slice(-2)))
-    .sort((a,b) => a-b);
-  const existing = formatAsRanges(existingDays);
+  const existing = compareRaw[`${y}-${m+1}`] || "";
 
   const overlay = document.createElement("div");
   overlay.style.cssText = "position:fixed;inset:0;background:rgba(0,0,0,.35);z-index:999;display:flex;align-items:center;justify-content:center";
@@ -680,6 +689,9 @@ function openImport() {
 
 function applyImport(y, m, btn) {
   const raw = document.getElementById("importInput").value;
+  // Zapamiętaj oryginalny tekst użytkownika
+  compareRaw[`${y}-${m+1}`] = raw.trim();
+  saveCompareRaw();
   // Ostatni dzień każdego zakresu = checkout (wolny — dzień wyjazdu)
   const tokens = raw.split(/[\s,;]+/).filter(Boolean);
   const profitOccupied = new Set();
@@ -713,7 +725,9 @@ function applyImport(y, m, btn) {
 }
 function clearCompare() {
   compare = {};
+  compareRaw = {};
   saveCompare();
+  saveCompareRaw();
   render();
 }
 

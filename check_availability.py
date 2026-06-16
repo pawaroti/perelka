@@ -59,14 +59,22 @@ def fetch_availability():
             user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
         )
         log(f"Ładowanie: {URL}")
-        page.goto(URL, wait_until="networkidle", timeout=30_000)
+        try:
+            page.goto(URL, wait_until="domcontentloaded", timeout=60_000)
+        except PlaywrightTimeoutError:
+            log("Timeout przy goto — próbuję mimo to")
+
+        # Poczekaj aż JavaScript wyrenderuje kalendarz
         try:
             page.wait_for_selector(
                 ".calendar, table, [class*='avail'], [class*='cal'], [class*='month']",
-                timeout=15_000
+                timeout=20_000
             )
         except PlaywrightTimeoutError:
-            log("Selektor kalendarza nie znaleziony — próbuję mimo to")
+            log("Selektor kalendarza nie znaleziony — zapisuję HTML do debugowania")
+
+        # Dodatkowe odczekanie na JS
+        page.wait_for_timeout(3_000)
 
         html = page.content()
         Path("data/last_page.html").write_text(html, encoding="utf-8")
@@ -131,6 +139,26 @@ def fetch_availability():
                             except ValueError:
                                 pass
 
+        # Debug: zapisz unikalne klasy CSS żeby zobaczyć jak strona koduje zajętość
+        all_classes = page.evaluate("""() => {
+            const cls = new Set();
+            document.querySelectorAll('*').forEach(el => {
+                String(el.className || '').split(' ').forEach(c => c.trim() && cls.add(c));
+            });
+            return [...cls].sort().join('\\n');
+        }""")
+        Path("data/debug_classes.txt").write_text(all_classes, encoding="utf-8")
+        log(f"Unikalne klasy CSS ({len(all_classes.splitlines())}): {', '.join(all_classes.splitlines()[:30])}")
+
+        # Debug: fragment HTML kalendarza
+        cal_html = page.evaluate("""() => {
+            const sel = 'table, .calendar, [class*="cal"], [class*="avail"], [class*="month"]';
+            const el = document.querySelector(sel);
+            return el ? el.outerHTML.slice(0, 4000) : 'NIE ZNALEZIONO KALENDARZA';
+        }""")
+        Path("data/debug_calendar.html").write_text(cal_html, encoding="utf-8")
+        log(f"Kalendarz HTML (pierwsze 300 znaków): {cal_html[:300]}")
+
         browser.close()
     log(f"Pobrano {len(results)} dat łącznie")
     return results
@@ -148,8 +176,14 @@ def main():
         raise
 
     if not fetched:
-        log("OSTRZEŻENIE: Brak danych z kalendarza — sprawdź data/last_page.html")
-        sys.exit(1)
+        log("OSTRZEŻENIE: Brak danych z kalendarza — sprawdź artefakt debug w Actions")
+        # Nie exitujemy z kodem błędu — chcemy żeby git commit zapisał pliki debug
+        gha = os.environ.get("GITHUB_OUTPUT", "")
+        if gha:
+            with open(gha, "a") as f:
+                f.write(f"status=unknown\ndate={today_str}\n")
+        log("=== Koniec (brak danych) ===")
+        return
 
     records.update(fetched)
     save_csv(records)

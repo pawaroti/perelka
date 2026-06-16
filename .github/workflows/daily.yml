@@ -1,0 +1,55 @@
+name: Sprawdź zajętość
+
+on:
+  schedule:
+    - cron: '0 6 * * *'   # 8:00 czasu polskiego (UTC+2)
+  workflow_dispatch:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Instalacja Playwright
+        run: |
+          pip install playwright
+          playwright install chromium
+          playwright install-deps chromium
+
+      - name: Sprawdź zajętość
+        id: check
+        run: python check_availability.py
+
+      - name: Zaktualizuj CSV i stronę
+        run: |
+          git config user.name  "Monitor Bot"
+          git config user.email "bot@github-actions"
+          git add data/
+          git diff --staged --quiet || git commit -m "📊 ${{ steps.check.outputs.date }}: ${{ steps.check.outputs.status }}"
+          git push
+
+      - name: Podsumowanie
+        run: |
+          echo "## ${{ steps.check.outputs.date }}" >> $GITHUB_STEP_SUMMARY
+          if [ "${{ steps.check.outputs.status }}" = "occupied" ]; then
+            echo "🔴 **Zajęty**" >> $GITHUB_STEP_SUMMARY
+          elif [ "${{ steps.check.outputs.status }}" = "free" ]; then
+            echo "🟢 **Wolny**" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "⚠️ **Nieznany — sprawdź logi i data/last_page.html**" >> $GITHUB_STEP_SUMMARY
+          fi
+
+      - name: Artefakt debug HTML
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: last-page-${{ github.run_id }}
+          path: data/last_page.html
+          retention-days: 7

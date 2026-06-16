@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """
 Profitroom Availability Monitor — Perełka Bałtyku
-Pobiera zajętość z Profitroom i zapisuje do CSV.
+Pobiera zajętość z Profitroom (Handsontable) i zapisuje do CSV.
 """
-import csv, os, re, sys
+import csv, os, re, sys, json
 from datetime import date, datetime
 from pathlib import Path
 from playwright.sync_api import sync_playwright, TimeoutError as PlaywrightTimeoutError
@@ -35,22 +35,6 @@ def save_csv(records):
         for d in sorted(records):
             w.writerow({"date": d, "status": records[d], "updated_at": ts})
 
-def classify(css):
-    c = css.lower()
-    if any(m in c for m in ["reserved","occupied","unavailable","booked","zarezerwowany","blocked"]):
-        return "occupied"
-    if any(m in c for m in ["available","free","wolny","open"]):
-        return "free"
-    return None
-
-MONTHS_PL = {
-    "styczeń":1,"stycznia":1,"luty":2,"lutego":2,"marzec":3,"marca":3,
-    "kwiecień":4,"kwietnia":4,"maj":5,"maja":5,"czerwiec":6,"czerwca":6,
-    "lipiec":7,"lipca":7,"sierpień":8,"sierpnia":8,"wrzesień":9,"września":9,
-    "październik":10,"października":10,"listopad":11,"listopada":11,
-    "grudzień":12,"grudnia":12,
-}
-
 def fetch_availability():
     results = {}
     with sync_playwright() as p:
@@ -58,110 +42,247 @@ def fetch_availability():
         page = browser.new_page(
             user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
         )
+
         log(f"Ładowanie: {URL}")
         try:
             page.goto(URL, wait_until="domcontentloaded", timeout=60_000)
         except PlaywrightTimeoutError:
             log("Timeout przy goto — próbuję mimo to")
 
-        # Poczekaj aż JavaScript wyrenderuje kalendarz
+        # Czekamy na Handsontable
         try:
-            page.wait_for_selector(
-                ".calendar, table, [class*='avail'], [class*='cal'], [class*='month']",
-                timeout=20_000
-            )
+            page.wait_for_selector("table.htCore", timeout=20_000)
+            log("Znaleziono table.htCore")
         except PlaywrightTimeoutError:
-            log("Selektor kalendarza nie znaleziony — zapisuję HTML do debugowania")
+            log("Brak table.htCore po 20s")
 
-        # Dodatkowe odczekanie na JS
-        page.wait_for_timeout(3_000)
+        page.wait_for_timeout(2_000)
 
+        # Zapisz pełny HTML
         html = page.content()
         Path("data/last_page.html").write_text(html, encoding="utf-8")
         log(f"HTML zapisany ({len(html)} znaków)")
 
-        # --- Strategia 1: atrybuty data-date ---
-        cells = page.query_selector_all("[data-date]")
-        if cells:
-            log(f"Strategia 1: {len(cells)} komórek data-date")
-            for cell in cells:
-                d      = cell.get_attribute("data-date") or ""
-                status = classify(cell.get_attribute("class") or "")
-                if re.match(r"\d{4}-\d{2}-\d{2}", d) and status:
-                    results[d] = status
+        # Wyciągnij strukturę Handsontable przez JS
+        # Handsontable trzyma dane w instancji — szukamy jej przez Handsontable.instances
+        data = page.evaluate("""() => {
+            // Próba 1: przez globalny obiekt Handsontable
+            if (typeof Handsontable !== 'undefined') {
+                const instances = Handsontable.instances || [];
+                const results = [];
+                for (const ht of instances) {
+                    try {
+                        const data = ht.getData();
+                        const colHeaders = ht.getColHeader();
+                        const rowHeaders = ht.getRowHeader ? ht.getRowHeader() : [];
+                        results.push({ data, colHeaders, rowHeaders });
+                    } catch(e) {}
+                }
+                if (results.length) return { source: 'Handsontable.instances', results };
+            }
 
-        # --- Strategia 2: td/div z title ---
-        if not results:
-            cells = page.query_selector_all("td[title],div[title]")
-            log(f"Strategia 2: {len(cells)} elementów z title")
-            for cell in cells:
-                title  = cell.get_attribute("title") or ""
-                status = classify(cell.get_attribute("class") or "")
-                m = re.search(r"(\d{4}-\d{2}-\d{2})", title) or \
-                    re.search(r"(\d{1,2})\.(\d{2})\.(\d{4})", title)
-                if m and status:
-                    if "-" in m.group(0):
-                        d = m.group(1)
-                    else:
-                        d = f"{m.group(3)}-{m.group(2)}-{int(m.group(1)):02d}"
-                    results[d] = status
+            // Próba 2: przez element DOM — Handsontable zapisuje instancję na elemencie
+            const tables = document.querySelectorAll('.handsontable');
+            for (const el of tables) {
+                if (el.hotInstance) {
+                    try {
+                        const ht = el.hotInstance;
+                        const data = ht.getData();
+                        const colHeaders = ht.getColHeader ? ht.getColHeader() : [];
+                        return { source: 'hotInstance', data, colHeaders };
+                    } catch(e) {}
+                }
+            }
 
-        # --- Strategia 3: tabela miesiąc-po-miesiącu ---
-        if not results:
-            log("Strategia 3: parsowanie tabeli")
-            cur_year = date.today().year
-            sections = page.query_selector_all(
-                ".month-section,.month,[class*='month-wrap'],table"
-            )
-            for section in sections:
-                hdr_el = section.query_selector(
-                    "h2,h3,caption,th,[class*='month-title'],[class*='caption']"
-                )
-                hdr = hdr_el.inner_text().strip().lower() if hdr_el else ""
-                ym  = re.search(r"\b(20\d{2})\b", hdr)
-                yr  = int(ym.group(1)) if ym else cur_year
-                mo  = next((v for k,v in MONTHS_PL.items() if k in hdr), None)
-                if not mo:
-                    continue
-                for cell in section.query_selector_all("td,[class*='day']"):
-                    txt = cell.inner_text().strip()
-                    if re.fullmatch(r"\d{1,2}", txt):
-                        day = int(txt)
-                        if 1 <= day <= 31:
-                            try:
-                                d      = date(yr, mo, day).isoformat()
-                                cls    = cell.get_attribute("class") or ""
-                                status = classify(cls)
-                                if status:
-                                    results[d] = status
-                                elif "empty" not in cls.lower() and "other" not in cls.lower():
-                                    results[d] = "free"
-                            except ValueError:
-                                pass
-
-        # Debug: zapisz unikalne klasy CSS żeby zobaczyć jak strona koduje zajętość
-        all_classes = page.evaluate("""() => {
-            const cls = new Set();
-            document.querySelectorAll('*').forEach(el => {
-                String(el.className || '').split(' ').forEach(c => c.trim() && cls.add(c));
+            // Próba 3: bezpośredni zapis struktury tabeli HTML
+            // Nagłówki kolumn — daty w <thead>
+            const headers = [];
+            document.querySelectorAll('table.htCore thead th').forEach(th => {
+                headers.push(th.innerText.trim());
             });
-            return [...cls].sort().join('\\n');
-        }""")
-        Path("data/debug_classes.txt").write_text(all_classes, encoding="utf-8")
-        log(f"Unikalne klasy CSS ({len(all_classes.splitlines())}): {', '.join(all_classes.splitlines()[:30])}")
 
-        # Debug: fragment HTML kalendarza
-        cal_html = page.evaluate("""() => {
-            const sel = 'table, .calendar, [class*="cal"], [class*="avail"], [class*="month"]';
-            const el = document.querySelector(sel);
-            return el ? el.outerHTML.slice(0, 4000) : 'NIE ZNALEZIONO KALENDARZA';
+            // Wiersze — klasy i tytuły komórek
+            const rows = [];
+            document.querySelectorAll('table.htCore tbody tr').forEach(tr => {
+                const rowHeader = tr.querySelector('th') ? tr.querySelector('th').innerText.trim() : '';
+                const cells = [];
+                tr.querySelectorAll('td').forEach(td => {
+                    cells.push({
+                        text: td.innerText.trim(),
+                        cls: td.className,
+                        title: td.getAttribute('title') || ''
+                    });
+                });
+                rows.push({ rowHeader, cells });
+            });
+
+            return { source: 'DOM', headers, rows };
         }""")
-        Path("data/debug_calendar.html").write_text(cal_html, encoding="utf-8")
-        log(f"Kalendarz HTML (pierwsze 300 znaków): {cal_html[:300]}")
+
+        dump = json.dumps(data, ensure_ascii=False, indent=2)
+        Path("data/debug_ht.json").write_text(dump, encoding="utf-8")
+        log(f"Handsontable dump zapisany ({len(dump)} znaków), source: {data.get('source','?')}")
+        log(f"Podgląd: {dump[:800]}")
+
+        # Parsowanie wyników
+        source = data.get("source", "")
+
+        if source == "DOM":
+            results = parse_dom_structure(data)
+        elif "results" in data and data["results"]:
+            results = parse_ht_instances(data["results"])
+        elif "data" in data and "colHeaders" in data:
+            results = parse_ht_instance(data["data"], data["colHeaders"])
 
         browser.close()
+
     log(f"Pobrano {len(results)} dat łącznie")
     return results
+
+
+def parse_dom_structure(data):
+    """
+    Parsuje strukturę DOM Handsontable.
+    Nagłówki kolumn to numery dni, wiersze to miesiące lub pokoje.
+    W Profitroom avail-review: wiersze = pokoje (tu mamy jeden), kolumny = dni.
+    Klasy komórek: 'not_exist'=wolny(?), 'current'=zajęty(?), 'past'=przeszły, 'other'=inny miesiąc
+    """
+    results = {}
+    headers = data.get("headers", [])
+    rows = data.get("rows", [])
+
+    log(f"DOM: {len(headers)} nagłówków, {len(rows)} wierszy")
+    log(f"Nagłówki (pierwsze 20): {headers[:20]}")
+    if rows:
+        log(f"Pierwszy wiersz: rowHeader={rows[0].get('rowHeader','')}, "
+            f"pierwsza komórka: {rows[0]['cells'][0] if rows[0]['cells'] else 'brak'}")
+
+    # Handsontable avail-review: kolumny = dni, nagłówki = numery dni lub daty
+    # Szukamy roku i miesiąca — mogą być w nagłówkach zakładek lub gdzie indziej
+    # Spróbuj wyciągnąć daty z tytułów komórek
+    for row in rows:
+        for i, cell in enumerate(row.get("cells", [])):
+            title = cell.get("title", "")
+            cls   = cell.get("cls", "")
+            text  = cell.get("text", "")
+
+            # Szukaj daty w title
+            m = re.search(r"(\d{4}-\d{2}-\d{2})", title)
+            if not m:
+                m = re.search(r"(\d{1,2})\.(\d{2})\.(\d{4})", title)
+                if m:
+                    d_str = f"{m.group(3)}-{m.group(2)}-{int(m.group(1)):02d}"
+                else:
+                    d_str = None
+            else:
+                d_str = m.group(1)
+
+            if d_str:
+                status = classify_profitroom(cls)
+                if status:
+                    results[d_str] = status
+
+    if not results:
+        log("Brak dat w title — próbuję rekonstrukcji z nagłówków kolumn")
+        results = reconstruct_from_headers(headers, rows)
+
+    return results
+
+
+def reconstruct_from_headers(headers, rows):
+    """
+    Handsontable avail-review Profitroom ma kolumny = dni miesiąca.
+    Nagłówki mogą być numerami 1-31 lub datami.
+    Szukamy aktywnego roku/miesiąca z URL lub ze strony.
+    """
+    results = {}
+    today = date.today()
+
+    # Nagłówki mogą być np. ["", "1", "2", ..., "31"] lub datami
+    # Spróbuj interpretować jako numery dni
+    day_cols = []
+    for i, h in enumerate(headers):
+        h = str(h).strip()
+        if re.fullmatch(r"\d{1,2}", h) and 1 <= int(h) <= 31:
+            day_cols.append((i, int(h)))
+
+    if not day_cols:
+        log(f"Nie można zidentyfikować kolumn dni z nagłówków: {headers}")
+        return results
+
+    log(f"Znaleziono {len(day_cols)} kolumn dni")
+
+    # Zakładamy bieżący i kolejne miesiące
+    # W każdym wierszu szukamy wzorca: past=poprzedni miesiąc, current/not_exist=bieżący
+    for row in rows:
+        cells = row.get("cells", [])
+        for col_i, day_num in day_cols:
+            if col_i >= len(cells):
+                continue
+            cell = cells[col_i]
+            cls  = cell.get("cls", "")
+            # Ustal rok i miesiąc na podstawie kontekstu
+            # (uproszczenie: używamy bieżącego miesiąca)
+            try:
+                d_str  = date(today.year, today.month, day_num).isoformat()
+                status = classify_profitroom(cls)
+                if status:
+                    results[d_str] = status
+            except ValueError:
+                pass
+
+    return results
+
+
+def parse_ht_instances(ht_results):
+    results = {}
+    for ht in ht_results:
+        r = parse_ht_instance(ht.get("data",[]), ht.get("colHeaders",[]))
+        results.update(r)
+    return results
+
+
+def parse_ht_instance(data_rows, col_headers):
+    results = {}
+    log(f"HT instance: {len(data_rows)} wierszy, {len(col_headers)} nagłówków")
+    # col_headers mogą zawierać daty
+    for i, h in enumerate(col_headers):
+        m = re.search(r"(\d{4}-\d{2}-\d{2})", str(h))
+        if not m:
+            continue
+        d_str = m.group(1)
+        for row in data_rows:
+            if i < len(row):
+                val = str(row[i]).lower()
+                if any(x in val for x in ["reserved","zajęty","1","true","yes"]):
+                    results[d_str] = "occupied"
+                elif any(x in val for x in ["free","wolny","0","false","no",""]):
+                    results[d_str] = "free"
+    return results
+
+
+def classify_profitroom(css_classes):
+    """
+    Klasy Profitroom Handsontable:
+    - 'current' = bieżący miesiąc, komórka aktywna
+    - 'not_exist' = wolny / niedostępny do rezerwacji  
+    - 'disabled' lub brak = zajęty / zarezerwowany
+    - 'past' = przeszły dzień
+    - 'other' = inny miesiąc
+    Trzeba to zweryfikować po zobaczeniu debug_ht.json
+    """
+    c = css_classes.lower()
+    # Pominięte komórki
+    if "other" in c or "corner" in c or "rowheader" in c or "colheader" in c:
+        return None
+    # Zajęty
+    if "disabled" in c:
+        return "occupied"
+    # Wolny (w Profitroom avail-review "not_exist" = wolny tzn. można zarezerwować?
+    # lub odwrotnie — weryfikacja po debug_ht.json)
+    if "not_exist" in c or "current" in c:
+        return "free"
+    return None
 
 
 def main():
@@ -176,8 +297,7 @@ def main():
         raise
 
     if not fetched:
-        log("OSTRZEŻENIE: Brak danych z kalendarza — sprawdź artefakt debug w Actions")
-        # Nie exitujemy z kodem błędu — chcemy żeby git commit zapisał pliki debug
+        log("OSTRZEŻENIE: Brak danych — sprawdź artefakt debug_ht.json w Actions")
         gha = os.environ.get("GITHUB_OUTPUT", "")
         if gha:
             with open(gha, "a") as f:

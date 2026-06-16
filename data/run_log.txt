@@ -1,0 +1,10 @@
+[2026-06-16 16:12:00] === Start: 2026-06-16 ===
+[2026-06-16 16:12:01] Ładowanie: https://5806.center-inner.profitroom.com/avail-review/pl/room/474980/474980/9bd957797b4da9c0d9a417d4da8813cdcbb1ef9f
+[2026-06-16 16:12:06] HTML zapisany (64167 znaków)
+[2026-06-16 16:12:06] Strategia 2: 366 elementów z title
+[2026-06-16 16:12:08] Strategia 3: parsowanie tabeli
+[2026-06-16 16:12:08] Unikalne klasy CSS (46): active, area, clearfix, colHeader, container, copyPaste, corner, current, disabled, dragdealer, fill, handle, handsontable, home, horizontal, htCore, mws-panel-body, mws-tabs, no-padding, not_exist, other, past, relative, rowHeader, today, ui-corner-all, ui-corner-top, ui-helper-clearfix, ui-helper-reset, ui-state-active
+[2026-06-16 16:12:08] Kalendarz HTML (pierwsze 300 znaków): <table class="htCore"><colgroup><col class="rowHeader"><col style="width: 24px;"><col style="width: 24px;"><col style="width: 24px;"><col style="width: 24px;"><col style="width: 24px;"><col style="width: 24px;"><col style="width: 24px;"><col style="width: 24px;"><col style="width: 24px;"><col style=
+[2026-06-16 16:12:08] Pobrano 0 dat łącznie
+[2026-06-16 16:12:08] OSTRZEŻENIE: Brak danych z kalendarza — sprawdź artefakt debug w Actions
+[2026-06-16 16:12:08] === Koniec (brak danych) ===

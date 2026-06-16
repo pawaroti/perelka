@@ -467,7 +467,8 @@ function renderCompare() {
     <div class="compare-bar">
       <select id="cmpMonth" onchange="render()">${opts}</select>
       <button class="btn" onclick="openImport()">Wprowadź zajęte dni…</button>
-      ${Object.keys(compare).length ? `<button class="btn" onclick="clearCompare()">Wyczyść porównanie</button>` : ""}
+      ${Object.keys(compare).length ? `<button class="btn" onclick="clearCompareMonth()" title="Wyczyść dane dla wybranego miesiąca">Wyczyść miesiąc</button>` : ""}
+      ${Object.keys(compare).length > 31 ? `<button class="btn" style="color:var(--occ-text)" onclick="clearCompare()">Wyczyść wszystko</button>` : ""}
     </div>
     ${renderCompareNightsSummary()}
   ${renderCompareTable()}`;
@@ -521,8 +522,8 @@ function renderCompareTable() {
     const profNorm2 = prof === "checkout" ? "free" : prof;
     const isDiff = ourNorm2 && profNorm2 && ourNorm2 !== profNorm2;
     if (isDiff) diffCount++;
-    const ourLabel = our === "occupied" || our === "checkin" || our === "checkout" ? "🔴 " + (our === "checkin" ? "Checkin" : our === "checkout" ? "Checkout" : "Zajęty") : our === "free" ? "🟢 Wolny" : null;
-    const ourCls   = (our === "occupied" || our === "checkin" || our === "checkout") ? "occ" : "free";
+    const ourLabel = our === "occupied" || our === "checkin" ? "🔴 " + (our === "checkin" ? "Checkin" : "Zajęty") : (our === "checkout" || our === "free") ? "🟢 " + (our === "checkout" ? "Checkout" : "Wolny") : null;
+    const ourCls   = (our === "occupied" || our === "checkin") ? "occ" : "free";
     const ourBadge = ourLabel ? `<span class="badge ${ourCls}">${ourLabel}</span>` : `<span class="badge none">brak</span>`;
     const profLabel = prof === "occupied" ? "🔴 Zajęty" : (prof === "free" || prof === "checkout") ? "🟢 Wolny" : null;
     const profCls   = prof === "occupied" ? "occ" : "free";
@@ -723,12 +724,47 @@ function applyImport(y, m, btn) {
   saveCompare();
   render();
 }
+function confirmAction(message, onConfirm) {
+  const overlay = document.createElement('div');
+  overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.35);z-index:999;display:flex;align-items:center;justify-content:center';
+  overlay.innerHTML = `
+    <div style="background:var(--surface);border-radius:12px;padding:1.5rem;width:360px;max-width:95vw;box-shadow:0 8px 30px rgba(0,0,0,.15)">
+      <p style="font-size:14px;margin-bottom:1.25rem;line-height:1.6;color:var(--text)">${message}</p>
+      <div style="display:flex;gap:8px;justify-content:flex-end">
+        <button class="btn" onclick="this.closest('div[style*=fixed]').remove()">Anuluj</button>
+        <button class="btn" style="border-color:var(--occ-dot);color:var(--occ-text)" id="confirmBtn">Usuń</button>
+      </div>
+    </div>`;
+  document.body.appendChild(overlay);
+  overlay.querySelector('#confirmBtn').onclick = () => { overlay.remove(); onConfirm(); };
+}
+
+function clearCompareMonth() {
+  const sel = document.getElementById('cmpMonth');
+  if (!sel) return;
+  const [y, m] = sel.value.split('-').map(Number);
+  const monthName = MONTHS[m] + ' ' + y;
+  confirmAction(`Usunąć dane weryfikacyjne dla <strong>${monthName}</strong>?`, () => {
+    const prefix = `${y}-${String(m+1).padStart(2,'0')}`;
+    for (const k of Object.keys(compare)) {
+      if (k.startsWith(prefix)) delete compare[k];
+    }
+    delete compareRaw[`${y}-${m+1}`];
+    saveCompare();
+    saveCompareRaw();
+    render();
+  });
+}
+
 function clearCompare() {
-  compare = {};
-  compareRaw = {};
-  saveCompare();
-  saveCompareRaw();
-  render();
+  const months = new Set(Object.keys(compare).map(d => d.slice(0,7))).size;
+  confirmAction(`Usunąć dane weryfikacyjne dla wszystkich <strong>${months} miesięcy</strong>? Tej operacji nie można cofnąć.`, () => {
+    compare = {};
+    compareRaw = {};
+    saveCompare();
+    saveCompareRaw();
+    render();
+  });
 }
 
 // ── NAV ───────────────────────────────────────────────────────────────────────

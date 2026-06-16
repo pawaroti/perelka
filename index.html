@@ -477,7 +477,7 @@ function renderCompare() {
     let m = today.getMonth() - i;
     let y = today.getFullYear();
     while (m < 0) { m += 12; y--; }
-    months.push({ y, m, label: `${MONTHS[m]} ${y}`, value: `${y}-${String(m+1).padStart(2,'0')}` });
+    months.push({ y, m, label: `${MONTHS[m]} ${y}`, value: `${y}-${m}` });
   }
   if (!compareSel) compareSel = months[0].value;
 
@@ -485,8 +485,8 @@ function renderCompare() {
     `<option value="${x.value}" ${x.value === compareSel ? 'selected' : ''}>${x.label}</option>`
   ).join('');
 
-  const [cmpY, cmpM] = compareSel.split('-').map(Number); // cmpM is 1-based
-  const cmpPrefix = compareSel; // already 'YYYY-MM'
+  const [cmpY, cmpM] = compareSel.split('-').map(Number); // cmpM is 0-based
+  const cmpPrefix = `${cmpY}-${String(cmpM+1).padStart(2,'0')}`;
 
   const diffCount = Object.entries(compare).filter(([d,s]) => {
     if (!d.startsWith(cmpPrefix)) return false;
@@ -508,8 +508,8 @@ function renderCompare() {
   }
 
   const storageInfo = updateCompareStorageInfo();
-  const nightsSummary = renderCompareNightsSummary(cmpY, cmpM);
-  const table = renderCompareTable(cmpY, cmpM);
+  const nightsSummary = renderCompareNightsSummary(cmpY, cmpM+1);
+  const table = renderCompareTable(cmpY, cmpM+1);
   const hasAny = Object.keys(compare).length > 0;
   const hasMulti = new Set(Object.keys(compare).map(d => d.slice(0,7))).size > 1;
 
@@ -616,14 +616,14 @@ function confirmAction(message, onConfirm) {
 
 function clearCompareMonth() {
   if (!compareSel) return;
-  const [y, m] = compareSel.split('-').map(Number); // m is 1-based
-  const monthName = MONTHS[m-1] + ' ' + y;
+  const [y, m] = compareSel.split('-').map(Number); // m is 0-based
+  const monthName = MONTHS[m] + ' ' + y;
   confirmAction(`Usunąć dane weryfikacyjne dla <strong>${monthName}</strong>?`, () => {
-    const prefix = `${y}-${String(m).padStart(2,'0')}`;
+    const prefix = `${y}-${String(m+1).padStart(2,'0')}`;
     for (const k of Object.keys(compare)) {
       if (k.startsWith(prefix)) delete compare[k];
     }
-    delete compareRaw[`${y}-${m}`];
+    delete compareRaw[`${y}-${m+1}`];
     saveCompare();
     saveCompareRaw();
     render();
@@ -676,7 +676,7 @@ function formatAsRanges(days) {
 function openImport() {
   if (!compareSel) return;
   const [y, m] = compareSel.split('-').map(Number); // m is 1-based
-  const existing = compareRaw[`${y}-${m}`] || '';
+  const existing = compareRaw[`${y}-${m+1}`] || '';
   const overlay = document.createElement('div');
   overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.35);z-index:999;display:flex;align-items:center;justify-content:center';
   overlay.innerHTML = `
@@ -694,7 +694,7 @@ function openImport() {
       <div id="importPreview" style="font-size:12px;color:var(--muted);margin-top:6px;min-height:18px"></div>
       <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:12px">
         <button class="btn" onclick="this.closest('div[style*=fixed]').remove()">Anuluj</button>
-        <button class="btn" onclick="applyImport(${y},${m},this)" style="background:#4f7ef8;color:#fff;border-color:#4f7ef8">Porównaj</button>
+        <button class="btn" onclick="applyImport(${y},${m+1},this)" style="background:#4f7ef8;color:#fff;border-color:#4f7ef8">Porównaj</button>
       </div>
     </div>`;
   document.body.appendChild(overlay);

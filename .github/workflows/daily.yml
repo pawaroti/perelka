@@ -2,7 +2,7 @@ name: Sprawdź zajętość
 
 on:
   schedule:
-    - cron: '0 6 * * *'
+    - cron: '0 18 * * *'   # 20:00 czasu polskiego (UTC+2)
   workflow_dispatch:
 
 env:
@@ -13,6 +13,7 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
+
     steps:
       - uses: actions/checkout@v4.2.2
 
@@ -43,15 +44,3 @@ jobs:
         run: |
           echo "## ${{ steps.check.outputs.date }}" >> $GITHUB_STEP_SUMMARY
           echo "Status: **${{ steps.check.outputs.status }}**" >> $GITHUB_STEP_SUMMARY
-
-      - name: Artefakt debug
-        if: always()
-        uses: actions/upload-artifact@v4.6.2
-        with:
-          name: debug-${{ github.run_id }}
-          path: |
-            data/last_page.html
-            data/debug_ht.json
-            data/debug_classes.txt
-            data/run_log.txt
-          retention-days: 7

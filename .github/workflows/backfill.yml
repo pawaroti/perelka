@@ -1,0 +1,51 @@
+name: Pobierz historię (backfill)
+
+on:
+  workflow_dispatch:
+    inputs:
+      start_date:
+        description: 'Data startowa (YYYY-MM-DD), domyślnie 2026-03-01'
+        required: false
+        default: '2026-03-01'
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+jobs:
+  backfill:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/checkout@v4.2.2
+
+      - uses: actions/setup-python@v5.6.0
+        with:
+          python-version: '3.12'
+
+      - name: Instalacja Playwright
+        run: |
+          pip install playwright
+          playwright install chromium
+          playwright install-deps chromium
+
+      - name: Pobierz historię
+        run: python backfill.py ${{ inputs.start_date }}
+
+      - name: Zapisz CSV do repozytorium
+        run: |
+          git config user.name  "Monitor Bot"
+          git config user.email "bot@github-actions"
+          git add data/occupancy.csv
+          git diff --staged --quiet || git commit -m "📥 Backfill od ${{ inputs.start_date }}"
+          git push
+
+      - name: Podsumowanie
+        if: always()
+        run: |
+          echo "## Backfill od ${{ inputs.start_date }}" >> $GITHUB_STEP_SUMMARY
+          if [ -f data/occupancy.csv ]; then
+            LINES=$(wc -l < data/occupancy.csv)
+            echo "Zapisanych dni w CSV: **$((LINES - 1))**" >> $GITHUB_STEP_SUMMARY
+          fi

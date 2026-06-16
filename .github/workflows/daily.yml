@@ -2,7 +2,7 @@ name: Sprawdź zajętość
 
 on:
   schedule:
-    - cron: '0 6 * * *'   # 8:00 czasu polskiego (UTC+2)
+    - cron: '0 6 * * *'
   workflow_dispatch:
 
 env:
@@ -39,15 +39,10 @@ jobs:
           git push
 
       - name: Podsumowanie
+        if: always()
         run: |
           echo "## ${{ steps.check.outputs.date }}" >> $GITHUB_STEP_SUMMARY
-          if [ "${{ steps.check.outputs.status }}" = "occupied" ]; then
-            echo "🔴 **Zajęty**" >> $GITHUB_STEP_SUMMARY
-          elif [ "${{ steps.check.outputs.status }}" = "free" ]; then
-            echo "🟢 **Wolny**" >> $GITHUB_STEP_SUMMARY
-          else
-            echo "⚠️ **Nieznany — sprawdź logi i data/last_page.html**" >> $GITHUB_STEP_SUMMARY
-          fi
+          echo "Status: **${{ steps.check.outputs.status }}**" >> $GITHUB_STEP_SUMMARY
 
       - name: Artefakt debug
         if: always()
@@ -56,7 +51,7 @@ jobs:
           name: debug-${{ github.run_id }}
           path: |
             data/last_page.html
+            data/debug_ht.json
             data/debug_classes.txt
-            data/debug_calendar.html
             data/run_log.txt
           retention-days: 7

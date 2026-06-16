@@ -319,7 +319,9 @@ function renderCalendar() {
     const isToday  = key === today;
     const status   = records[key];
     const cmpStatus = compare[key];
-    const isDiff   = status && cmpStatus && status !== cmpStatus;
+    const statusNorm = status === "checkin" ? "occupied" : status === "checkout" ? "free" : status;
+    const cmpNorm    = cmpStatus === "checkout" ? "free" : cmpStatus;
+    const isDiff   = statusNorm && cmpNorm && statusNorm !== cmpNorm;
 
     let cls = "cal-day";
     if      (isDiff)           cls += " diff";
@@ -363,7 +365,9 @@ function renderTable() {
   const rows = sorted.map(d => {
     const s = records[d];
     const c = compare[d];
-    const isDiff = s && c && s !== c;
+    const sNorm = s === "checkin" ? "occupied" : s === "checkout" ? "free" : s;
+    const cNorm = c === "checkout" ? "free" : c;
+    const isDiff = sNorm && cNorm && sNorm !== cNorm;
     const badge = s === "occupied"
       ? `<span class="badge occ">🔴 Zajęty</span>`
       : s === "checkin"
@@ -425,8 +429,9 @@ function renderCompare() {
   const diffCount = Object.entries(compare).filter(([d,s]) => {
     const our = records[d];
     if (!our) return false;
-    const ourNorm = (our === "checkin" || our === "checkout") ? "occupied" : our;
-    return ourNorm !== s;
+    const ourNorm  = our === "checkin" ? "occupied" : our === "checkout" ? "free" : our;
+    const profNorm = s   === "checkout" ? "free" : s;
+    return ourNorm !== profNorm;
   }).length;
   let summary = "";
   if (Object.keys(compare).length === 0) {
@@ -470,10 +475,8 @@ function renderCompareNightsSummary() {
     // Profitroom noce: occupied — ale w compare wszystko jest 'occupied'/'free'
     // nocą jest każdy dzień 'occupied' który nie jest ostatnim dniem rezerwacji
     // (uproszczenie: liczymy wszystkie occupied z compare minus te gdzie następny dzień free)
-    if (prof === 'occupied') {
-      const nextKey = (() => { try { const nd = new Date(key); nd.setDate(nd.getDate()+1); return nd.toISOString().slice(0,10); } catch(e){return '';} })();
-      if (!nextKey || compare[nextKey] !== 'free') profNights++;
-    }
+    // Profitroom: occupied = noc, checkout = dzień wyjazdu (nie liczy się jako noc)
+    if (prof === 'occupied') profNights++;
   }
   if (!nights && !profNights) return '';
   const diff = nights - profNights;
@@ -500,10 +503,16 @@ function renderCompareTable() {
     const our  = records[key];
     const prof = compare[key];
     if (!our && !prof) continue;
-    const isDiff = our && prof && our !== prof;
+    const ourNorm2  = our  === "checkin" ? "occupied" : our  === "checkout" ? "free" : our;
+    const profNorm2 = prof === "checkout" ? "free" : prof;
+    const isDiff = ourNorm2 && profNorm2 && ourNorm2 !== profNorm2;
     if (isDiff) diffCount++;
-    const ourBadge  = our  ? (our==="occupied"  ? `<span class="badge occ">🔴 Zajęty</span>`  : `<span class="badge free">🟢 Wolny</span>`) : `<span class="badge none">brak</span>`;
-    const profBadge = prof ? (prof==="occupied" ? `<span class="badge occ">🔴 Zajęty</span>`  : `<span class="badge free">🟢 Wolny</span>`) : `<span class="badge none">—</span>`;
+    const ourLabel = our === "occupied" || our === "checkin" || our === "checkout" ? "🔴 " + (our === "checkin" ? "Checkin" : our === "checkout" ? "Checkout" : "Zajęty") : our === "free" ? "🟢 Wolny" : null;
+    const ourCls   = (our === "occupied" || our === "checkin" || our === "checkout") ? "occ" : "free";
+    const ourBadge = ourLabel ? `<span class="badge ${ourCls}">${ourLabel}</span>` : `<span class="badge none">brak</span>`;
+    const profLabel = prof === "occupied" ? "🔴 Zajęty" : (prof === "free" || prof === "checkout") ? "🟢 Wolny" : null;
+    const profCls   = prof === "occupied" ? "occ" : "free";
+    const profBadge = profLabel ? `<span class="badge ${profCls}">${profLabel}</span>` : `<span class="badge none">—</span>`;
     rows += `<tr class="${isDiff?"diff-row":""}">
       <td>${key}</td>
       <td>${ourBadge}</td>
@@ -656,7 +665,14 @@ function openImport() {
   const preview = overlay.querySelector('#importPreview');
   function updatePreview() {
     const days = parseRanges(ta.value);
-    preview.textContent = days.size ? `${days.size} zajętych dni: ${formatAsRanges([...days].sort((a,b)=>a-b))}` : "";
+    // Policz noce: zakresy = (to - from) nocy, pojedyncze = 1 noc
+    let nightCount = 0;
+    tokens.filter(Boolean).forEach(t => {
+      const r = t.match(/^(\d{1,2})-(\d{1,2})$/);
+      if (r) nightCount += Math.abs(parseInt(r[2]) - parseInt(r[1]));
+      else if (!isNaN(parseInt(t))) nightCount += 1;
+    });
+    preview.textContent = days.size ? `${days.size} zajętych dni · ${nightCount} nocy` : "";
   }
   ta.addEventListener('input', updatePreview);
   updatePreview();
@@ -664,19 +680,35 @@ function openImport() {
 
 function applyImport(y, m, btn) {
   const raw = document.getElementById("importInput").value;
-  const profitOccupied = parseRanges(raw);
+  // Ostatni dzień każdego zakresu = checkout (wolny — dzień wyjazdu)
+  const tokens = raw.split(/[\s,;]+/).filter(Boolean);
+  const profitOccupied = new Set();
+  const profitCheckout = new Set();
+  for (const token of tokens) {
+    const range = token.match(/^(\d{1,2})-(\d{1,2})$/);
+    if (range) {
+      const from = Math.min(parseInt(range[1]), parseInt(range[2]));
+      const to   = Math.max(parseInt(range[1]), parseInt(range[2]));
+      for (let d = from; d < to; d++) profitOccupied.add(d);
+      profitCheckout.add(to);
+    } else {
+      const n = parseInt(token);
+      if (!isNaN(n) && n >= 1 && n <= 31) profitOccupied.add(n);
+    }
+  }
   const prefix = `${y}-${String(m+1).padStart(2,"0")}`;
   const days = daysInMonth(y, m);
-
   for (const k of Object.keys(compare)) {
     if (k.startsWith(prefix)) delete compare[k];
   }
   for (let d = 1; d <= days; d++) {
     const key = `${prefix}-${String(d).padStart(2,"0")}`;
-    compare[key] = profitOccupied.has(d) ? "occupied" : "free";
+    if      (profitOccupied.has(d)) compare[key] = "occupied";
+    else if (profitCheckout.has(d)) compare[key] = "checkout";
+    else                            compare[key] = "free";
   }
-
   btn.closest("div[style*='fixed']").remove();
+  saveCompare();
   render();
 }
 function clearCompare() {

@@ -183,13 +183,27 @@
 // Zmień na swoje repozytorium po wgraniu!
 const CSV_URL = "./data/occupancy.csv";
 
+// ── COMPARE STORAGE ──────────────────────────────────────────────────────────────
+const COMPARE_KEY = 'apt_compare_v1';
+
+function saveCompare() {
+  try { localStorage.setItem(COMPARE_KEY, JSON.stringify(compare)); } catch(e) {}
+}
+
+function loadCompare() {
+  try {
+    const raw = localStorage.getItem(COMPARE_KEY);
+    return raw ? JSON.parse(raw) : {};
+  } catch(e) { return {}; }
+}
+
 // ── STATE ─────────────────────────────────────────────────────────────────────
 const MONTHS = ["Styczeń","Luty","Marzec","Kwiecień","Maj","Czerwiec",
                 "Lipiec","Sierpień","Wrzesień","Październik","Listopad","Grudzień"];
 const DAYS   = ["Pn","Wt","Śr","Cz","Pt","Sb","Nd"];
 
 let records  = {};   // { "2025-06-15": "occupied"|"free" }
-let compare  = {};   // { "2025-06-15": "occupied"|"free" }  (profitroom snapshot for comparison)
+let compare  = loadCompare();   // { "2025-06-15": "occupied"|"free" }  (profitroom snapshot for comparison)
 let viewYear, viewMonth, activeTab = "calendar";
 
 // ── DATA ──────────────────────────────────────────────────────────────────────
@@ -224,7 +238,8 @@ function monthStats(y, m) {
     else if (records[key] === "checkin")   checkin++;
     else                                  unknown++;
   }
-  return { occ, free, checkout, checkin, unknown };
+  const nights = occ + checkin + checkout - checkout; // checkout nie liczy się jako noc
+  return { occ, free, checkout, checkin, unknown, nights };
 }
 
 function globalStats() {
@@ -244,7 +259,8 @@ function globalStats() {
     else                                  unknown++;
     cur.setDate(cur.getDate() + 1);
   }
-  return { occ, free, checkout, checkin, unknown };
+  const nights = occ + checkin + checkout - checkout; // checkout nie liczy się jako noc
+  return { occ, free, checkout, checkin, unknown, nights };
 }
 
 // ── RENDER ────────────────────────────────────────────────────────────────────
@@ -270,10 +286,8 @@ function renderStats() {
   return `
     <div class="stats">
       <div class="stat"><div class="stat-label">Dziś</div><div style="margin-top:4px">${todayBadge}</div></div>
-      <div class="stat"><div class="stat-label">Dni zajętych (łącznie)</div><div class="stat-value occ">${s.occ}</div></div>
+      <div class="stat"><div class="stat-label">Noce (łącznie)</div><div class="stat-value occ">${s.nights}</div></div>
       <div class="stat"><div class="stat-label">Dni wolnych (łącznie)</div><div class="stat-value free">${s.free}</div></div>
-      <div class="stat"><div class="stat-label">Checkout (od 16:00)</div><div class="stat-value" style="color:var(--occ-dot)">${s.checkout}</div></div>
-      <div class="stat"><div class="stat-label">Checkin (od 16:00)</div><div class="stat-value" style="color:var(--occ-dot)">${s.checkin}</div></div>
       <div class="stat"><div class="stat-label">Dni bez danych</div><div class="stat-value" style="color:var(--hint)">${s.unknown}</div></div>
     </div>`;
 }
@@ -385,6 +399,16 @@ function renderTable() {
 }
 
 // ── COMPARE ───────────────────────────────────────────────────────────────────
+function updateCompareStorageInfo() {
+  const months = new Set(Object.keys(compare).map(d => d.slice(0,7)));
+  if (months.size === 0) return 'Brak zapisanych danych weryfikacyjnych.';
+  const list = [...months].sort().map(m => {
+    const [y, mo] = m.split('-').map(Number);
+    return MONTHS[mo-1] + ' ' + y;
+  }).join(', ');
+  return `Zapisane miesiące (${months.size}): <strong>${list}</strong>`;
+}
+
 function renderCompare() {
   const months = [];
   const today = new Date();
@@ -398,7 +422,12 @@ function renderCompare() {
     `<option value="${x.value}">${x.label}</option>`
   ).join("");
 
-  const diffCount = Object.entries(compare).filter(([d,s]) => records[d] && records[d] !== s).length;
+  const diffCount = Object.entries(compare).filter(([d,s]) => {
+    const our = records[d];
+    if (!our) return false;
+    const ourNorm = (our === "checkin" || our === "checkout") ? "occupied" : our;
+    return ourNorm !== s;
+  }).length;
   let summary = "";
   if (Object.keys(compare).length === 0) {
     summary = `<div class="diff-summary info">Wprowadź dane Profitroom aby zobaczyć porównanie.</div>`;
@@ -409,6 +438,7 @@ function renderCompare() {
   }
 
   return `
+    <div style="font-size:12px;color:var(--muted);margin-bottom:10px">${updateCompareStorageInfo()}</div>
     <div class="compare-hint">
       <strong>Jak to działa:</strong> Otwórz <a href="https://5806.center-inner.profitroom.com/avail-review/pl/room/474980/474980/9bd957797b4da9c0d9a417d4da8813cdcbb1ef9f" target="_blank">kalendarz Profitroom ↗</a>,
       wybierz miesiąc i wpisz numery zajętych dni. Aplikacja porówna je z zapisanymi przez GitHub Actions
@@ -416,11 +446,45 @@ function renderCompare() {
     </div>
     ${summary}
     <div class="compare-bar">
-      <select id="cmpMonth">${opts}</select>
+      <select id="cmpMonth" onchange="render()">${opts}</select>
       <button class="btn" onclick="openImport()">Wprowadź zajęte dni…</button>
       ${Object.keys(compare).length ? `<button class="btn" onclick="clearCompare()">Wyczyść porównanie</button>` : ""}
     </div>
-    ${renderCompareTable()}`;
+    ${renderCompareNightsSummary()}
+  ${renderCompareTable()}`;
+}
+
+function renderCompareNightsSummary() {
+  const sel = document.getElementById('cmpMonth');
+  if (!sel) return '';
+  const [y, m] = sel.value.split('-').map(Number);
+  const prefix = `${y}-${String(m).padStart(2,'0')}`;
+  let nights = 0, profNights = 0;
+  const days = daysInMonth(y, m-1);
+  for (let d = 1; d <= days; d++) {
+    const key = `${prefix}-${String(d).padStart(2,'0')}`;
+    const our  = records[key];
+    const prof = compare[key];
+    // Nasze noce: occupied + checkin (checkout nie liczy się)
+    if (our === 'occupied' || our === 'checkin') nights++;
+    // Profitroom noce: occupied — ale w compare wszystko jest 'occupied'/'free'
+    // nocą jest każdy dzień 'occupied' który nie jest ostatnim dniem rezerwacji
+    // (uproszczenie: liczymy wszystkie occupied z compare minus te gdzie następny dzień free)
+    if (prof === 'occupied') {
+      const nextKey = (() => { try { const nd = new Date(key); nd.setDate(nd.getDate()+1); return nd.toISOString().slice(0,10); } catch(e){return '';} })();
+      if (!nextKey || compare[nextKey] !== 'free') profNights++;
+    }
+  }
+  if (!nights && !profNights) return '';
+  const diff = nights - profNights;
+  const diffStr = diff === 0
+    ? `<span style="color:var(--free-dot)">zgodne</span>`
+    : `<span style="color:var(--occ-dot)">różnica: ${diff > 0 ? '+' : ''}${diff} nocy</span>`;
+  return `<div style="display:flex;gap:24px;margin-bottom:12px;font-size:13px;background:var(--bg);border-radius:8px;padding:10px 14px;flex-wrap:wrap">
+    <span>🌙 <strong>Nasze noce:</strong> ${nights}</span>
+    <span>🌙 <strong>Profitroom noce:</strong> ${profNights}</span>
+    <span>${diffStr}</span>
+  </div>`;
 }
 
 function renderCompareTable() {
@@ -469,7 +533,16 @@ function renderChart() {
       if (records[key] === "occupied") occ++;
       else if (records[key] === "free") free++;
     }
-    bars.push({ m, occ, free, total });
+    const nights = occ; // checkout nie liczy się (następny dzień wolny), checkin liczy się
+    // ale occ już zawiera tylko środkowe dni — checkin/checkout liczone osobno w monthStats
+    // przelicz z records:
+    let ci = 0, co = 0;
+    for (let d = 1; d <= total; d++) {
+      const k = `${prefix}-${String(d).padStart(2,'0')}`;
+      if (records[k] === 'checkin')  ci++;
+      if (records[k] === 'checkout') co++;
+    }
+    bars.push({ m, occ, free, total, nights: occ + ci });
   }
   const maxDays = 31;
   const barRows = bars.map(b => {
@@ -483,9 +556,9 @@ function renderChart() {
           <div class="bar-free" style="width:${freePct}%;left:${occPct}%"></div>
         </div>
         <div class="bar-count">
-          <span style="color:var(--occ-dot)">${b.occ}</span>
-          <span style="color:var(--hint)"> / </span>
-          <span style="color:var(--free-dot)">${b.free}</span>
+          <span style="color:var(--occ-dot)" title="nocy">🌙${b.nights}</span>
+          <span style="color:var(--hint)"> </span>
+          <span style="color:var(--free-dot)" title="wolnych">🟢${b.free}</span>
         </div>
       </div>`;
   }).join("");
@@ -494,12 +567,13 @@ function renderChart() {
   const totFree = bars.reduce((s,b) => s+b.free, 0);
   const totDays = bars.reduce((s,b) => s+b.total, 0);
   const pct = totDays > 0 ? Math.round((totOcc/(totOcc+totFree||1))*100) : 0;
+  const totNights = bars.reduce((s,b) => s + b.nights, 0);
 
   return `
     <div class="chart-wrap">
       <div class="chart-title">Zajętość w ${year}
         <span style="font-size:12px;font-weight:400;color:var(--muted);margin-left:12px">
-          🔴 ${totOcc} zajętych · 🟢 ${totFree} wolnych · ${pct}% obłożenie
+          🌙 ${totNights} nocy · 🔴 ${totOcc} zajętych · 🟢 ${totFree} wolnych · ${pct}% obłożenie
         </span>
       </div>
       ${barRows}
@@ -607,6 +681,7 @@ function applyImport(y, m, btn) {
 }
 function clearCompare() {
   compare = {};
+  saveCompare();
   render();
 }
 

@@ -1,0 +1,583 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Monitor zajętości — Perełka Bałtyku</title>
+<style>
+  :root {
+    --bg:       #f5f4f0;
+    --surface:  #ffffff;
+    --border:   rgba(0,0,0,0.09);
+    --text:     #1a1a1a;
+    --muted:    #6b6b6b;
+    --hint:     #a0a0a0;
+    --occ-bg:   #fdecea;
+    --occ-text: #9b2c2c;
+    --occ-dot:  #e53e3e;
+    --free-bg:  #e6f4ea;
+    --free-text:#1e5c31;
+    --free-dot: #38a169;
+    --diff-bg:  #fff8e1;
+    --diff-text:#7c5700;
+    --diff-dot: #d97706;
+    --radius:   10px;
+    --shadow:   0 1px 3px rgba(0,0,0,0.07);
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+         background: var(--bg); color: var(--text); font-size: 15px; line-height: 1.6; }
+
+  header { background: var(--surface); border-bottom: 1px solid var(--border);
+           padding: 1rem 1.5rem; display: flex; align-items: center;
+           justify-content: space-between; gap: 1rem; flex-wrap: wrap; }
+  header h1 { font-size: 17px; font-weight: 600; }
+  header p  { font-size: 13px; color: var(--muted); }
+  .last-update { font-size: 12px; color: var(--hint); white-space: nowrap; }
+
+  main { max-width: 1100px; margin: 0 auto; padding: 1.5rem; }
+
+  /* STATS */
+  .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px,1fr));
+           gap: 12px; margin-bottom: 1.5rem; }
+  .stat { background: var(--surface); border: 1px solid var(--border);
+          border-radius: var(--radius); padding: 1rem 1.25rem; box-shadow: var(--shadow); }
+  .stat-label { font-size: 12px; color: var(--muted); margin-bottom: 4px; }
+  .stat-value { font-size: 26px; font-weight: 600; }
+  .stat-value.occ  { color: var(--occ-dot); }
+  .stat-value.free { color: var(--free-dot); }
+  .stat-value.diff { color: var(--diff-dot); }
+
+  /* TABS */
+  .tabs { display: flex; gap: 2px; margin-bottom: 1.5rem;
+          background: var(--surface); border: 1px solid var(--border);
+          border-radius: var(--radius); padding: 4px; box-shadow: var(--shadow); width: fit-content; }
+  .tab { padding: 7px 18px; border-radius: 7px; font-size: 14px; cursor: pointer;
+         color: var(--muted); border: none; background: none; font-family: inherit; }
+  .tab.active { background: var(--bg); color: var(--text); font-weight: 500;
+                box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
+
+  /* CALENDAR */
+  .calendar-wrap { background: var(--surface); border: 1px solid var(--border);
+                   border-radius: var(--radius); box-shadow: var(--shadow); overflow: hidden; }
+  .cal-nav { display: flex; align-items: center; justify-content: space-between;
+             padding: 1rem 1.25rem; border-bottom: 1px solid var(--border); }
+  .cal-nav h2 { font-size: 16px; font-weight: 600; }
+  .cal-nav-btn { background: none; border: 1px solid var(--border); border-radius: 7px;
+                 padding: 5px 12px; cursor: pointer; font-size: 16px; color: var(--muted); }
+  .cal-nav-btn:hover { background: var(--bg); }
+  .cal-grid { display: grid; grid-template-columns: repeat(7,1fr); }
+  .cal-dow { text-align: center; font-size: 12px; color: var(--hint); font-weight: 500;
+             padding: 8px 0; border-bottom: 1px solid var(--border); }
+  .cal-day { aspect-ratio: 1; display: flex; align-items: center; justify-content: center;
+             font-size: 13px; cursor: default; position: relative; border-bottom: 1px solid var(--border);
+             border-right: 1px solid var(--border); transition: opacity .15s; }
+  .cal-day:nth-child(7n) { border-right: none; }
+  .cal-day.empty { background: var(--bg); }
+  .cal-day.occupied { background: var(--occ-bg); color: var(--occ-text); font-weight: 500; }
+  .cal-day.free     { background: var(--free-bg); color: var(--free-text); font-weight: 500; }
+  .cal-day.today    { outline: 2px solid #4f7ef8; outline-offset: -2px; font-weight: 700; }
+  .cal-day.future   { color: var(--hint); }
+  .cal-day.no-data  { color: var(--hint); background: var(--bg); }
+  .cal-day.diff     { background: var(--diff-bg); color: var(--diff-text); font-weight: 500; }
+  .diff-dot { position: absolute; top: 3px; right: 3px; width: 6px; height: 6px;
+              border-radius: 50%; background: var(--diff-dot); }
+  .cal-legend { display: flex; gap: 16px; padding: 10px 1.25rem;
+                border-top: 1px solid var(--border); flex-wrap: wrap; }
+  .leg-item  { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--muted); }
+  .leg-dot   { width: 10px; height: 10px; border-radius: 3px; }
+  .leg-dot.occ  { background: var(--occ-bg); border: 1px solid var(--occ-dot); }
+  .leg-dot.free { background: var(--free-bg); border: 1px solid var(--free-dot); }
+  .leg-dot.diff { background: var(--diff-bg); border: 1px solid var(--diff-dot); }
+  .leg-dot.none { background: var(--bg); border: 1px solid var(--border); }
+
+  /* TABLE VIEW */
+  .table-wrap { background: var(--surface); border: 1px solid var(--border);
+                border-radius: var(--radius); overflow: hidden; box-shadow: var(--shadow); }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  thead th { background: var(--bg); font-size: 12px; font-weight: 600; color: var(--muted);
+             text-align: left; padding: 9px 14px; border-bottom: 1px solid var(--border); }
+  tbody td { padding: 8px 14px; border-bottom: 1px solid var(--border); }
+  tbody tr:last-child td { border-bottom: none; }
+  tbody tr:hover { background: var(--bg); }
+  tbody tr.diff-row { background: var(--diff-bg); }
+  tbody tr.diff-row:hover { background: #fff0b3; }
+  .badge { display: inline-flex; align-items: center; gap: 4px; padding: 2px 9px;
+           border-radius: 99px; font-size: 12px; font-weight: 500; }
+  .badge.occ  { background: var(--occ-bg);  color: var(--occ-text); }
+  .badge.free { background: var(--free-bg); color: var(--free-text); }
+  .badge.diff { background: var(--diff-bg); color: var(--diff-text); }
+  .badge.none { background: var(--bg); color: var(--hint); border: 1px solid var(--border); }
+
+  /* COMPARE */
+  .compare-bar { display: flex; gap: 10px; align-items: center; margin-bottom: 1rem;
+                 flex-wrap: wrap; }
+  .compare-bar select { padding: 7px 10px; border: 1px solid var(--border); border-radius: 7px;
+                        background: var(--surface); font-size: 13px; cursor: pointer;
+                        font-family: inherit; }
+  .btn { padding: 7px 16px; border: 1px solid var(--border); border-radius: 7px;
+         background: var(--surface); font-size: 13px; cursor: pointer; font-family: inherit;
+         color: var(--text); }
+  .btn:hover { background: var(--bg); }
+  .compare-hint { background: var(--surface); border: 1px solid var(--border);
+                  border-radius: var(--radius); padding: 1rem 1.25rem; font-size: 13px;
+                  color: var(--muted); margin-bottom: 1rem; line-height: 1.7; }
+  .compare-hint a { color: #4f7ef8; }
+  .diff-summary { padding: 10px 14px; border-radius: 8px; font-size: 13px; font-weight: 500;
+                  margin-bottom: 1rem; }
+  .diff-summary.ok   { background: var(--free-bg); color: var(--free-text); }
+  .diff-summary.warn { background: var(--diff-bg); color: var(--diff-text); }
+  .diff-summary.info { background: var(--bg); color: var(--muted); }
+
+  /* CHART — annual bar */
+  .chart-wrap { background: var(--surface); border: 1px solid var(--border);
+                border-radius: var(--radius); padding: 1.25rem; box-shadow: var(--shadow); }
+  .chart-title { font-size: 14px; font-weight: 600; margin-bottom: 1rem; }
+  .bar-row { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; font-size: 12px; }
+  .bar-label { width: 30px; color: var(--muted); text-align: right; flex-shrink: 0; }
+  .bar-track { flex: 1; height: 18px; background: var(--bg); border-radius: 4px; overflow: hidden;
+               position: relative; }
+  .bar-occ  { height: 100%; background: var(--occ-dot); opacity: .75; border-radius: 4px;
+              display: inline-block; }
+  .bar-free { height: 100%; background: var(--free-dot); opacity: .75; border-radius: 4px;
+              display: inline-block; position: absolute; }
+  .bar-count { width: 60px; font-size: 11px; color: var(--muted); flex-shrink: 0; }
+
+  /* ERROR / LOADING */
+  .loading { text-align: center; padding: 3rem; color: var(--hint); }
+  .error   { background: #fdecea; color: #9b2c2c; border-radius: var(--radius);
+             padding: 1rem 1.25rem; font-size: 13px; }
+
+  @media (max-width: 600px) {
+    main { padding: 1rem; }
+    .cal-day { font-size: 11px; }
+    .stats { grid-template-columns: repeat(2,1fr); }
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <div>
+    <h1>🏖️ Monitor zajętości — Perełka Bałtyku</h1>
+    <p>Apartamenty nad Morzem · automatyczny monitoring pośrednika</p>
+  </div>
+  <span class="last-update" id="lastUpdate">Ładowanie…</span>
+</header>
+
+<main>
+  <div id="app">
+    <div class="loading">Wczytywanie danych…</div>
+  </div>
+</main>
+
+<script>
+// ── CONFIG ────────────────────────────────────────────────────────────────────
+// GitHub Raw URL do pliku occupancy.csv
+// Zmień na swoje repozytorium po wgraniu!
+const CSV_URL = "./data/occupancy.csv";
+
+// ── STATE ─────────────────────────────────────────────────────────────────────
+const MONTHS = ["Styczeń","Luty","Marzec","Kwiecień","Maj","Czerwiec",
+                "Lipiec","Sierpień","Wrzesień","Październik","Listopad","Grudzień"];
+const DAYS   = ["Pn","Wt","Śr","Cz","Pt","Sb","Nd"];
+
+let records  = {};   // { "2025-06-15": "occupied"|"free" }
+let compare  = {};   // { "2025-06-15": "occupied"|"free" }  (profitroom snapshot for comparison)
+let viewYear, viewMonth, activeTab = "calendar";
+
+// ── DATA ──────────────────────────────────────────────────────────────────────
+async function loadData() {
+  const res = await fetch(CSV_URL + "?t=" + Date.now());
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  const text = await res.text();
+  const lines = text.trim().split("\n").slice(1); // skip header
+  records = {};
+  for (const line of lines) {
+    const [date, status] = line.split(",");
+    if (date && status) records[date.trim()] = status.trim();
+  }
+}
+
+// ── HELPERS ───────────────────────────────────────────────────────────────────
+const todayISO = () => new Date().toISOString().slice(0,10);
+
+function daysInMonth(y, m) { return new Date(y, m+1, 0).getDate(); }
+
+function monthStats(y, m) {
+  const prefix = `${y}-${String(m+1).padStart(2,"0")}`;
+  let occ = 0, free = 0, unknown = 0;
+  const total = daysInMonth(y, m);
+  const today = todayISO();
+  for (let d = 1; d <= total; d++) {
+    const key = `${prefix}-${String(d).padStart(2,"0")}`;
+    if (new Date(key) > new Date(today)) continue;
+    if      (records[key] === "occupied") occ++;
+    else if (records[key] === "free")     free++;
+    else                                  unknown++;
+  }
+  return { occ, free, unknown };
+}
+
+function globalStats() {
+  let occ = 0, free = 0, unknown = 0;
+  const today = todayISO();
+  const allKeys = Object.keys(records);
+  const first = allKeys.sort()[0];
+  if (!first) return { occ, free, unknown, days: 0 };
+  let cur = new Date(first);
+  const end = new Date(today);
+  while (cur <= end) {
+    const key = cur.toISOString().slice(0,10);
+    if      (records[key] === "occupied") occ++;
+    else if (records[key] === "free")     free++;
+    else                                  unknown++;
+    cur.setDate(cur.getDate() + 1);
+  }
+  return { occ, free, unknown };
+}
+
+// ── RENDER ────────────────────────────────────────────────────────────────────
+function render() {
+  const app = document.getElementById("app");
+  app.innerHTML = `
+    ${renderStats()}
+    <div class="tabs" style="margin-bottom:1.5rem">
+      ${["calendar","table","compare","chart"].map(t => `
+        <button class="tab ${activeTab===t?"active":""}" onclick="switchTab('${t}')">${
+          {calendar:"📅 Kalendarz", table:"📋 Tabela", compare:"🔍 Weryfikacja", chart:"📊 Wykres"}[t]
+        }</button>`).join("")}
+    </div>
+    <div id="tabContent">${renderTab()}</div>`;
+}
+
+function renderStats() {
+  const s = globalStats();
+  const todayStatus = records[todayISO()];
+  const todayBadge = todayStatus
+    ? `<span class="badge ${todayStatus==="occupied"?"occ":"free"}">${todayStatus==="occupied"?"🔴 Zajęty":"🟢 Wolny"}</span>`
+    : `<span class="badge none">—</span>`;
+  return `
+    <div class="stats">
+      <div class="stat"><div class="stat-label">Dziś</div><div style="margin-top:4px">${todayBadge}</div></div>
+      <div class="stat"><div class="stat-label">Dni zajętych (łącznie)</div><div class="stat-value occ">${s.occ}</div></div>
+      <div class="stat"><div class="stat-label">Dni wolnych (łącznie)</div><div class="stat-value free">${s.free}</div></div>
+      <div class="stat"><div class="stat-label">Dni bez danych</div><div class="stat-value" style="color:var(--hint)">${s.unknown}</div></div>
+    </div>`;
+}
+
+function renderTab() {
+  if (activeTab === "calendar") return renderCalendar();
+  if (activeTab === "table")    return renderTable();
+  if (activeTab === "compare")  return renderCompare();
+  if (activeTab === "chart")    return renderChart();
+  return "";
+}
+
+// ── CALENDAR ──────────────────────────────────────────────────────────────────
+function renderCalendar() {
+  const today = todayISO();
+  const firstDow = new Date(viewYear, viewMonth, 1).getDay();
+  const startOffset = (firstDow === 0 ? 6 : firstDow - 1);
+  const days = daysInMonth(viewYear, viewMonth);
+  const prefix = `${viewYear}-${String(viewMonth+1).padStart(2,"0")}`;
+
+  let cells = DAYS.map(d => `<div class="cal-dow">${d}</div>`).join("");
+
+  for (let i = 0; i < startOffset; i++)
+    cells += `<div class="cal-day empty"></div>`;
+
+  for (let d = 1; d <= days; d++) {
+    const key = `${prefix}-${String(d).padStart(2,"0")}`;
+    const isFuture = key > today;
+    const isToday  = key === today;
+    const status   = records[key];
+    const cmpStatus = compare[key];
+    const isDiff   = status && cmpStatus && status !== cmpStatus;
+
+    let cls = "cal-day";
+    if      (isDiff)           cls += " diff";
+    else if (isFuture)         cls += " future";
+    else if (!status)          cls += " no-data";
+    else if (status==="occupied") cls += " occupied";
+    else                          cls += " free";
+    if (isToday) cls += " today";
+
+    const dot = isDiff ? `<span class="diff-dot"></span>` : "";
+    cells += `<div class="${cls}" title="${key}${status?" — "+(status==="occupied"?"Zajęty":"Wolny"):" — brak danych"}${isDiff?" ⚠️ RÓŻNICA vs Profitroom":""}">${d}${dot}</div>`;
+  }
+
+  return `
+    <div class="calendar-wrap">
+      <div class="cal-nav">
+        <button class="cal-nav-btn" onclick="changeMonth(-1)">‹</button>
+        <h2>${MONTHS[viewMonth]} ${viewYear}</h2>
+        <button class="cal-nav-btn" onclick="changeMonth(1)">›</button>
+      </div>
+      <div class="cal-grid">${cells}</div>
+      <div class="cal-legend">
+        <div class="leg-item"><div class="leg-dot occ"></div> Zajęty</div>
+        <div class="leg-item"><div class="leg-dot free"></div> Wolny</div>
+        <div class="leg-item"><div class="leg-dot none"></div> Brak danych</div>
+        ${Object.keys(compare).length ? `<div class="leg-item"><div class="leg-dot diff"></div> Różnica vs Profitroom</div>` : ""}
+      </div>
+    </div>`;
+}
+
+// ── TABLE ─────────────────────────────────────────────────────────────────────
+function renderTable() {
+  const sorted = Object.keys(records).sort().reverse();
+  if (!sorted.length) return `<div class="loading">Brak danych.</div>`;
+
+  const dow = ["Nd","Pn","Wt","Śr","Cz","Pt","Sb"];
+  const rows = sorted.map(d => {
+    const s = records[d];
+    const c = compare[d];
+    const isDiff = s && c && s !== c;
+    const badge = s === "occupied"
+      ? `<span class="badge occ">🔴 Zajęty</span>`
+      : `<span class="badge free">🟢 Wolny</span>`;
+    const cBadge = c
+      ? (c==="occupied" ? `<span class="badge occ">🔴 Zajęty</span>` : `<span class="badge free">🟢 Wolny</span>`)
+      : `<span class="badge none">—</span>`;
+    const diffCell = isDiff
+      ? `<span class="badge diff">⚠️ Różnica</span>`
+      : (c ? `<span style="font-size:12px;color:var(--free-dot)">✓</span>` : "");
+    return `<tr class="${isDiff?"diff-row":""}">
+      <td>${d}</td>
+      <td style="color:var(--muted);font-size:12px">${dow[new Date(d+"T12:00:00").getDay()]}</td>
+      <td>${badge}</td>
+      <td>${cBadge}</td>
+      <td>${diffCell}</td>
+    </tr>`;
+  }).join("");
+
+  return `
+    <div class="table-wrap">
+      <table>
+        <thead><tr>
+          <th>Data</th><th>Dzień</th><th>Zapisany status</th>
+          <th>Profitroom (weryfikacja)</th><th>Zgodność</th>
+        </tr></thead>
+        <tbody>${rows}</tbody>
+      </table>
+    </div>`;
+}
+
+// ── COMPARE ───────────────────────────────────────────────────────────────────
+function renderCompare() {
+  const months = [];
+  const today = new Date();
+  for (let i = 0; i < 18; i++) {
+    let m = today.getMonth() - i;
+    let y = today.getFullYear();
+    while (m < 0) { m += 12; y--; }
+    months.push({ y, m, label: `${MONTHS[m]} ${y}`, value: `${y}-${m}` });
+  }
+  const opts = months.map(x =>
+    `<option value="${x.value}">${x.label}</option>`
+  ).join("");
+
+  const diffCount = Object.entries(compare).filter(([d,s]) => records[d] && records[d] !== s).length;
+  let summary = "";
+  if (Object.keys(compare).length === 0) {
+    summary = `<div class="diff-summary info">Wprowadź dane Profitroom aby zobaczyć porównanie.</div>`;
+  } else if (diffCount === 0) {
+    summary = `<div class="diff-summary ok">✅ Wszystkie zapisane dane zgodne z Profitroom — brak różnic.</div>`;
+  } else {
+    summary = `<div class="diff-summary warn">⚠️ Wykryto <strong>${diffCount}</strong> różnic${diffCount===1?"ę":diffCount<5?"e":""}. Dni z różnicami są podświetlone w kalendarzu i tabeli.</div>`;
+  }
+
+  return `
+    <div class="compare-hint">
+      <strong>Jak to działa:</strong> Otwórz <a href="https://5806.center-inner.profitroom.com/avail-review/pl/room/474980/474980/9bd957797b4da9c0d9a417d4da8813cdcbb1ef9f" target="_blank">kalendarz Profitroom ↗</a>,
+      wybierz miesiąc i wpisz numery zajętych dni. Aplikacja porówna je z zapisanymi przez GitHub Actions
+      danymi i wyróżni różnice — to sygnał, że pośrednik mógł zmienić rezerwacje wstecznie.
+    </div>
+    ${summary}
+    <div class="compare-bar">
+      <select id="cmpMonth">${opts}</select>
+      <button class="btn" onclick="openImport()">Wprowadź zajęte dni…</button>
+      ${Object.keys(compare).length ? `<button class="btn" onclick="clearCompare()">Wyczyść porównanie</button>` : ""}
+    </div>
+    ${renderCompareTable()}`;
+}
+
+function renderCompareTable() {
+  if (!Object.keys(compare).length) return "";
+
+  const prefix = Object.keys(compare)[0].slice(0,7);
+  const [cy, cm] = prefix.split("-").map(Number);
+  const days = daysInMonth(cy, cm-1);
+  let rows = "";
+  let diffCount = 0;
+  for (let d = 1; d <= days; d++) {
+    const key = `${prefix}-${String(d).padStart(2,"0")}`;
+    const our  = records[key];
+    const prof = compare[key];
+    if (!our && !prof) continue;
+    const isDiff = our && prof && our !== prof;
+    if (isDiff) diffCount++;
+    const ourBadge  = our  ? (our==="occupied"  ? `<span class="badge occ">🔴 Zajęty</span>`  : `<span class="badge free">🟢 Wolny</span>`) : `<span class="badge none">brak</span>`;
+    const profBadge = prof ? (prof==="occupied" ? `<span class="badge occ">🔴 Zajęty</span>`  : `<span class="badge free">🟢 Wolny</span>`) : `<span class="badge none">—</span>`;
+    rows += `<tr class="${isDiff?"diff-row":""}">
+      <td>${key}</td>
+      <td>${ourBadge}</td>
+      <td>${profBadge}</td>
+      <td>${isDiff ? `<span class="badge diff">⚠️ Różnica</span>` : `<span style="color:var(--free-dot);font-size:13px">✓</span>`}</td>
+    </tr>`;
+  }
+
+  return `
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Data</th><th>Nasze dane</th><th>Profitroom</th><th>Zgodność</th></tr></thead>
+        <tbody>${rows || `<tr><td colspan="4" style="text-align:center;color:var(--hint);padding:1rem">Brak danych dla tego miesiąca</td></tr>`}</tbody>
+      </table>
+    </div>`;
+}
+
+// ── CHART ─────────────────────────────────────────────────────────────────────
+function renderChart() {
+  const year = viewYear;
+  const bars = [];
+  for (let m = 0; m < 12; m++) {
+    const prefix = `${year}-${String(m+1).padStart(2,"0")}`;
+    let occ = 0, free = 0, total = daysInMonth(year, m);
+    for (let d = 1; d <= total; d++) {
+      const key = `${prefix}-${String(d).padStart(2,"0")}`;
+      if (records[key] === "occupied") occ++;
+      else if (records[key] === "free") free++;
+    }
+    bars.push({ m, occ, free, total });
+  }
+  const maxDays = 31;
+  const barRows = bars.map(b => {
+    const occPct  = (b.occ  / maxDays * 100).toFixed(1);
+    const freePct = (b.free / maxDays * 100).toFixed(1);
+    return `
+      <div class="bar-row">
+        <div class="bar-label">${MONTHS[b.m].slice(0,3)}</div>
+        <div class="bar-track">
+          <div class="bar-occ"  style="width:${occPct}%"></div>
+          <div class="bar-free" style="width:${freePct}%;left:${occPct}%"></div>
+        </div>
+        <div class="bar-count">
+          <span style="color:var(--occ-dot)">${b.occ}</span>
+          <span style="color:var(--hint)"> / </span>
+          <span style="color:var(--free-dot)">${b.free}</span>
+        </div>
+      </div>`;
+  }).join("");
+
+  const totOcc  = bars.reduce((s,b) => s+b.occ,  0);
+  const totFree = bars.reduce((s,b) => s+b.free, 0);
+  const totDays = bars.reduce((s,b) => s+b.total, 0);
+  const pct = totDays > 0 ? Math.round((totOcc/(totOcc+totFree||1))*100) : 0;
+
+  return `
+    <div class="chart-wrap">
+      <div class="chart-title">Zajętość w ${year}
+        <span style="font-size:12px;font-weight:400;color:var(--muted);margin-left:12px">
+          🔴 ${totOcc} zajętych · 🟢 ${totFree} wolnych · ${pct}% obłożenie
+        </span>
+      </div>
+      ${barRows}
+      <div style="font-size:11px;color:var(--hint);margin-top:10px">
+        Słupek: czerwony = zajęte, zielony = wolne (na 31 dni skali)
+      </div>
+    </div>`;
+}
+
+// ── IMPORT / COMPARE ──────────────────────────────────────────────────────────
+function openImport() {
+  const sel = document.getElementById("cmpMonth");
+  const [y, m] = sel.value.split("-").map(Number);
+  const days = daysInMonth(y, m);
+  const existing = Object.entries(compare)
+    .filter(([d]) => d.startsWith(`${y}-${String(m+1).padStart(2,"0")}`))
+    .filter(([,s]) => s === "occupied")
+    .map(([d]) => parseInt(d.slice(-2)))
+    .sort((a,b) => a-b).join(", ");
+
+  const overlay = document.createElement("div");
+  overlay.style.cssText = "position:fixed;inset:0;background:rgba(0,0,0,.35);z-index:999;display:flex;align-items:center;justify-content:center";
+  overlay.innerHTML = `
+    <div style="background:var(--surface);border-radius:12px;padding:1.5rem;width:420px;max-width:95vw;box-shadow:0 8px 30px rgba(0,0,0,.15)">
+      <h3 style="font-size:16px;font-weight:600;margin-bottom:8px">Wprowadź dane z Profitroom</h3>
+      <p style="font-size:13px;color:var(--muted);margin-bottom:12px;line-height:1.6">
+        Miesiąc: <strong>${MONTHS[m]} ${y}</strong><br>
+        Otwórz <a href="https://5806.center-inner.profitroom.com/avail-review/pl/room/474980/474980/9bd957797b4da9c0d9a417d4da8813cdcbb1ef9f" target="_blank" style="color:#4f7ef8">kalendarz Profitroom ↗</a>
+        i wpisz numery <strong>zajętych</strong> dni (np. <code>1, 5, 6, 7, 12</code>).
+      </p>
+      <textarea id="importInput" placeholder="Numery zajętych dni, np: 3, 4, 5, 10, 11, 12"
+        style="width:100%;min-height:70px;padding:8px;border:1px solid var(--border);border-radius:7px;font-size:13px;font-family:inherit;resize:vertical;background:var(--surface);color:var(--text)">${existing}</textarea>
+      <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:12px">
+        <button class="btn" onclick="this.closest('div[style*=fixed]').remove()">Anuluj</button>
+        <button class="btn" onclick="applyImport(${y},${m},this)" style="background:#4f7ef8;color:#fff;border-color:#4f7ef8">Porównaj</button>
+      </div>
+    </div>`;
+  document.body.appendChild(overlay);
+}
+
+function applyImport(y, m, btn) {
+  const raw = document.getElementById("importInput").value;
+  const profitOccupied = new Set(
+    raw.split(/[\s,;]+/).map(n => parseInt(n)).filter(n => !isNaN(n) && n >= 1 && n <= 31)
+  );
+  const prefix = `${y}-${String(m+1).padStart(2,"0")}`;
+  const days = daysInMonth(y, m);
+
+  // Clear old compare for this month
+  for (const k of Object.keys(compare)) {
+    if (k.startsWith(prefix)) delete compare[k];
+  }
+
+  for (let d = 1; d <= days; d++) {
+    const key = `${prefix}-${String(d).padStart(2,"0")}`;
+    compare[key] = profitOccupied.has(d) ? "occupied" : "free";
+  }
+
+  btn.closest("div[style*='fixed']").remove();
+  render();
+}
+
+function clearCompare() {
+  compare = {};
+  render();
+}
+
+// ── NAV ───────────────────────────────────────────────────────────────────────
+function switchTab(t) { activeTab = t; render(); }
+function changeMonth(delta) {
+  viewMonth += delta;
+  if (viewMonth < 0)  { viewMonth = 11; viewYear--; }
+  if (viewMonth > 11) { viewMonth = 0;  viewYear++; }
+  render();
+}
+
+// ── INIT ──────────────────────────────────────────────────────────────────────
+(async function init() {
+  const now = new Date();
+  viewYear  = now.getFullYear();
+  viewMonth = now.getMonth();
+
+  try {
+    await loadData();
+    const count = Object.keys(records).length;
+    const latest = Object.keys(records).sort().pop() || "—";
+    document.getElementById("lastUpdate").textContent =
+      `${count} dni · ostatni: ${latest}`;
+  } catch (e) {
+    document.getElementById("app").innerHTML =
+      `<div class="error">⚠️ Nie udało się wczytać pliku <code>data/occupancy.csv</code>.<br>
+       Upewnij się, że GitHub Pages jest włączone i Actions już raz się wykonały.<br>
+       <small style="opacity:.7">${e.message}</small></div>`;
+    return;
+  }
+
+  render();
+})();
+</script>
+</body>
+</html>

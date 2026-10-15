@@ -724,3 +724,9 @@
 [2026-10-14 21:01:36] Łącznie 365 dni: 69 zajętych, 8 checkin, 8 checkout, 280 wolnych
 [2026-10-14 21:01:36] Status dziś (2026-10-14): free
 [2026-10-14 21:01:36] === Koniec ===
+[2026-10-15 20:35:27] === Start: 2026-10-15 ===
+[2026-10-15 20:35:28] Ładowanie: https://5806.center-inner.profitroom.com/avail-review/pl/room/474980/474980/9bd957797b4da9c0d9a417d4da8813cdcbb1ef9f
+[2026-10-15 20:35:32] Aktywny rok: 2026
+[2026-10-15 20:35:32] Łącznie 365 dni: 68 zajętych, 8 checkin, 8 checkout, 281 wolnych
+[2026-10-15 20:35:32] Status dziś (2026-10-15): free
+[2026-10-15 20:35:32] === Koniec ===
